@@ -1,5 +1,6 @@
 """Web UI cho audio_sub: nhập link YouTube -> subtitle.
 Chạy: python web_app.py  ->  http://127.0.0.1:5000"""
+import os
 import shutil
 import tempfile
 import threading
@@ -9,7 +10,7 @@ from urllib.parse import quote, urlparse
 
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
-from audio_sub import FORMATS, LANGS, MODELS, format_segments, transcribe
+from audio_sub import FORMATS, LANGS, format_segments, transcribe
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024**3  # 2 GB
@@ -51,7 +52,18 @@ def download_audio(url: str, out_dir: Path, job: dict, kind: str = "audio"):
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [hook],
+        # YouTube cần giải challenge JS; yt-dlp mặc định chỉ bật deno nên bật thêm node nếu có.
+        "js_runtimes": {"deno": {}, "node": {}},
+        "remote_components": ["ejs:github"],
     }
+    # YouTube hay đòi đăng nhập ("confirm you're not a bot"): dùng cookies.txt cạnh file này,
+    # hoặc đặt YTDLP_COOKIES_BROWSER=firefox|edge|chrome để lấy cookies từ trình duyệt.
+    cookie_file = Path(__file__).with_name("cookies.txt")
+    browser = os.environ.get("YTDLP_COOKIES_BROWSER")
+    if cookie_file.exists():
+        opts["cookiefile"] = str(cookie_file)
+    elif browser:
+        opts["cookiesfrombrowser"] = (browser,)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
     files = [p for p in out_dir.glob(f"{kind}.*") if p.suffix not in (".part", ".ytdl")]
@@ -60,7 +72,7 @@ def download_audio(url: str, out_dir: Path, job: dict, kind: str = "audio"):
     return files[0], info.get("title") or "subtitle"
 
 
-def _worker(job_id: str, url, model: str, lang, upload_path=None):
+def _worker(job_id: str, url, lang, upload_path=None):
     job = jobs[job_id]
     work = WORK_DIR / job_id
     work.mkdir(exist_ok=True)
@@ -74,7 +86,7 @@ def _worker(job_id: str, url, model: str, lang, upload_path=None):
                 path, title = download_audio(url, work, job)
                 job.update(name=title, progress=0.0)
             job["segments"] = transcribe(
-                path, model, lang,
+                path, lang,
                 on_status=lambda m: job.update(message=m),
                 on_progress=lambda f: job.update(progress=f))
         job["status"] = "done"
@@ -107,7 +119,7 @@ def _download_worker(job_id: str, url: str, kind: str):
 
 @app.get("/")
 def index():
-    return render_template("index.html", models=MODELS, langs=list(LANGS), formats=FORMATS)
+    return render_template("index.html", langs=list(LANGS), formats=FORMATS)
 
 
 @app.post("/api/jobs")
@@ -116,11 +128,10 @@ def create_job():
     data = request.form if upload else (request.get_json(silent=True) or {})
     url = (data.get("url") or "").strip()
     mode = data.get("mode", "subtitle")
-    model = data.get("model", "small")
     lang_name = data.get("lang", "Tự động")
     if not upload and not is_youtube_url(url):
         return jsonify(error="Link không hợp lệ. Hãy dán link YouTube (youtube.com hoặc youtu.be)."), 400
-    if model not in MODELS or lang_name not in LANGS:
+    if lang_name not in LANGS:
         return jsonify(error="Tham số không hợp lệ."), 400
 
     if mode in ("audio", "video"):
@@ -143,7 +154,7 @@ def create_job():
         upload.save(upload_path)
     jobs[job_id] = {"status": "queued", "progress": 0.0, "message": "Đang chờ...",
                     "segments": [], "name": name, "audio": upload_path}
-    threading.Thread(target=_worker, args=(job_id, url, model, LANGS[lang_name], upload_path), daemon=True).start()
+    threading.Thread(target=_worker, args=(job_id, url, LANGS[lang_name], upload_path), daemon=True).start()
     return jsonify(id=job_id)
 
 

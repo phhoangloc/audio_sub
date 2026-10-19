@@ -60,9 +60,6 @@
     <audio id="aud" preload="auto" hidden></audio>
 
     <div class="row">
-      <label>Model
-        <select id="model">{% for m in models %}<option {{ 'selected' if m == 'small' }}>{{ m }}</option>{% endfor %}</select>
-      </label>
       <label>Ngôn ngữ
         <select id="lang">{% for l in langs %}<option>{{ l }}</option>{% endfor %}</select>
       </label>
@@ -183,9 +180,9 @@ $('start').onclick = async () => {
   let body, headers = {};
   if (f) {
     body = new FormData();
-    body.append('file', f); body.append('model', $('model').value); body.append('lang', $('lang').value);
+    body.append('file', f); body.append('lang', $('lang').value);
   } else {
-    body = JSON.stringify({ url: $('url').value.trim(), model: $('model').value, lang: $('lang').value });
+    body = JSON.stringify({ url: $('url').value.trim(), lang: $('lang').value });
     headers = { 'Content-Type': 'application/json' };
   }
   $('start').disabled = true; $('out').style.display = 'none';

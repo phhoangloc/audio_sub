@@ -1,7 +1,7 @@
 """Audio -> subtitle (SRT/VTT/TXT) using faster-whisper.
 
 GUI:  python audio_sub.py
-CLI:  python audio_sub.py input.mp3 [-m small] [-l vi] [-f srt|vtt|txt]
+CLI:  python audio_sub.py input.mp3 [-l vi] [-f srt|vtt|txt]
 """
 import argparse
 import os
@@ -32,9 +32,10 @@ def _preload_vc_runtime():
 
 _preload_vc_runtime()
 
-MODELS = ["tiny", "base", "small", "medium", "large-v3"]
+MODEL = "large-v3"  # model mạnh nhất, cố định
 LANGS = {"Tự động": None, "Tiếng Việt": "vi", "English": "en", "日本語": "ja",
          "한국어": "ko", "中文": "zh", "Français": "fr", "Deutsch": "de", "Español": "es"}
+MODEL_DIR = Path(__file__).parent / "models"  # model tải về nằm trong dự án, khỏi tải lại
 FORMATS = ["srt", "vtt", "txt"]
 AUDIO_TYPES = [("Audio/Video", "*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma *.mp4 *.mkv *.webm *.mov"),
                ("Tất cả", "*.*")]
@@ -62,17 +63,36 @@ def format_segments(segments, fmt: str) -> str:
     return "\n".join(out)
 
 
-def transcribe(path, model_name, language, on_status=print, on_progress=lambda f: None):
+def transcribe(path, language, on_status=print, on_progress=lambda f: None):
     from faster_whisper import WhisperModel
 
-    on_status(f"Đang tải model '{model_name}' (lần đầu sẽ tải về, có thể mất vài phút)...")
-    model = WhisperModel(model_name, device="auto", compute_type="auto")
+    if (MODEL_DIR / f"models--Systran--faster-whisper-{MODEL}").is_dir():
+        on_status(f"Đang nạp model '{MODEL}' từ thư mục models...")
+    else:
+        on_status(f"Đang tải model '{MODEL}' (lần đầu sẽ tải về, có thể mất vài phút)...")
+    model = WhisperModel(MODEL, device="auto", compute_type="auto", download_root=str(MODEL_DIR))
     on_status("Đang nhận dạng giọng nói...")
-    gen, info = model.transcribe(str(path), language=language, vad_filter=True)
+    # Nhạc nền/khoảng lặng dễ làm Whisper "ảo giác" ra chữ lặp như "ん": tắt condition_on_previous_text
+    # để lỗi không lan sang đoạn sau, và loại đoạn mà model tự thấy là không có tiếng nói.
+    gen, info = model.transcribe(
+        str(path),
+        language=language,
+        vad_filter=True,
+        vad_parameters={"threshold": 0.5, "min_silence_duration_ms": 500, "speech_pad_ms": 200},
+        condition_on_previous_text=False,
+        no_speech_threshold=0.5,
+        compression_ratio_threshold=2.0,
+        temperature=[0.0, 0.2, 0.4],
+    )
     on_status(f"Ngôn ngữ: {info.language} ({info.language_probability:.0%}) — thời lượng {info.duration:.0f}s")
     segments = []
     for seg in gen:
-        segments.append({"start": seg.start, "end": seg.end, "text": seg.text.strip()})
+        text = seg.text.strip()
+        if seg.no_speech_prob > 0.6 and seg.avg_logprob < -0.8:
+            continue
+        if len(text) <= 3 and len(set(text)) == 1 and segments and segments[-1]["text"] == text:
+            continue
+        segments.append({"start": seg.start, "end": seg.end, "text": text})
         if info.duration:
             on_progress(min(seg.end / info.duration, 1.0))
     on_progress(1.0)
@@ -80,7 +100,7 @@ def transcribe(path, model_name, language, on_status=print, on_progress=lambda f
 
 
 def run_cli(args):
-    segs = transcribe(args.input, args.model, args.lang,
+    segs = transcribe(args.input, args.lang,
                       on_progress=lambda f: print(f"\r{f:.0%}", end="", flush=True))
     out = Path(args.output) if args.output else Path(args.input).with_suffix("." + args.format)
     out.write_text(format_segments(segs, args.format), encoding="utf-8")
@@ -98,7 +118,6 @@ def run_gui():
     state = {"segments": [], "file": None}
 
     file_var = tk.StringVar()
-    model_var = tk.StringVar(value="small")
     lang_var = tk.StringVar(value="Tự động")
     fmt_var = tk.StringVar(value="srt")
     status_var = tk.StringVar(value="Chọn file âm thanh để bắt đầu.")
@@ -112,7 +131,7 @@ def run_gui():
     opts = ttk.Frame(root, padding=(10, 0))
     opts.pack(fill="x")
     for i, (label, var, values) in enumerate([
-            ("Model", model_var, MODELS), ("Ngôn ngữ", lang_var, list(LANGS)), ("Định dạng", fmt_var, FORMATS)]):
+            ("Ngôn ngữ", lang_var, list(LANGS)), ("Định dạng", fmt_var, FORMATS)]):
         ttk.Label(opts, text=label).grid(row=0, column=i * 2, padx=(0, 4))
         ttk.Combobox(opts, textvariable=var, values=values, state="readonly", width=12).grid(
             row=0, column=i * 2 + 1, padx=(0, 14))
@@ -155,7 +174,7 @@ def run_gui():
 
         def work():
             try:
-                segs = transcribe(p, model_var.get(), LANGS[lang_var.get()],
+                segs = transcribe(p, LANGS[lang_var.get()],
                                   on_status=lambda m: q.put(("status", m)),
                                   on_progress=lambda f: q.put(("progress", f)))
                 q.put(("done", segs))
@@ -202,7 +221,6 @@ def run_gui():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Tạo subtitle từ file âm thanh")
     ap.add_argument("input", nargs="?", help="file âm thanh (bỏ trống để mở GUI)")
-    ap.add_argument("-m", "--model", default="small", choices=MODELS)
     ap.add_argument("-l", "--lang", default=None, help="mã ngôn ngữ, vd vi, en (mặc định: tự nhận diện)")
     ap.add_argument("-f", "--format", default="srt", choices=FORMATS)
     ap.add_argument("-o", "--output")
