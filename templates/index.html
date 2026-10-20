@@ -39,6 +39,10 @@
   #diff { margin:6px 0 0; line-height:1.8; }
   #diff .bad { background:color-mix(in srgb, var(--err) 25%, transparent); border-radius:4px; padding:0 3px; }
   #diff .ok { color:var(--muted); }
+  .item { display:flex; gap:8px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+  .item:first-child { border-top:0; }
+  .item .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item small { color:var(--muted); }
   textarea { width:100%; height:320px; resize:vertical; font:14px/1.5 ui-monospace, Consolas, monospace;
              background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:10px; }
 </style>
@@ -74,6 +78,7 @@
       <div class="tabs" id="tabs">
         {% for f in formats %}<button data-fmt="{{ f }}" class="{{ 'on' if f == 'srt' }}">{{ f|upper }}</button>{% endfor %}
         <span class="spacer"></span>
+        <button id="save" title="Lưu vào thư viện để mở lại lần sau">💾 Lưu</button>
         <button id="copy">Sao chép</button>
         <button id="dl" class="primary">Tải xuống</button>
       </div>
@@ -89,6 +94,11 @@
         <p id="score"></p><p id="diff"></p>
       </div>
     </div>
+  </div>
+
+  <div class="card" id="lib" style="margin-top:20px" hidden>
+    <h2 style="font-size:1.05rem;margin:0 0 8px">Thư viện đã lưu</h2>
+    <div id="libList"></div>
   </div>
 </main>
 
@@ -224,6 +234,38 @@ async function finish() {
   if (segs.length) showSeg();
 }
 let revealed = false;
+async function loadLib() {
+  const items = await (await fetch('api/library')).json();
+  $('lib').hidden = !items.length;
+  $('libList').replaceChildren(...items.map(it => {
+    const row = document.createElement('div'); row.className = 'item';
+    const nm = Object.assign(document.createElement('span'), { className: 'nm', textContent: it.name, title: it.name });
+    const info = Object.assign(document.createElement('small'), { textContent: `${it.count} câu` });
+    const open = Object.assign(document.createElement('button'), { textContent: 'Mở', className: 'primary' });
+    const del = Object.assign(document.createElement('button'), { textContent: '🗑', title: 'Xoá khỏi thư viện' });
+    open.onclick = async () => {
+      const r = await fetch(`api/library/${it.id}/load`, { method: 'POST' });
+      const j = await r.json();
+      if (!r.ok) return msg(j.error || 'Không mở được.', true);
+      jobId = j.id; mode = 'subtitle'; isFile = !j.url; videoId = j.url ? parseVideoId(j.url) : null;
+      const s = await (await fetch(`api/jobs/${jobId}`)).json();
+      segs = s.segments; cur = 0; msg(s.message); await finish();
+      $('out').scrollIntoView({ behavior: 'smooth' });
+    };
+    del.onclick = async () => {
+      if (!confirm(`Xoá "${it.name}" khỏi thư viện?`)) return;
+      await fetch(`api/library/${it.id}`, { method: 'DELETE' }); loadLib();
+    };
+    row.append(nm, info, open, del); return row;
+  }));
+}
+$('save').onclick = async () => {
+  const r = await fetch(`api/jobs/${jobId}/save`, { method: 'POST' });
+  $('save').textContent = r.ok ? '✓ Đã lưu' : 'Lỗi khi lưu';
+  setTimeout(() => $('save').textContent = '💾 Lưu', 1500);
+  if (r.ok) loadLib();
+};
+loadLib();
 const mask = t => t.replace(/[\p{L}\p{N}]/gu, '*');
 function renderFirst() {
   const g = segs[cur];

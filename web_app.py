@@ -1,10 +1,12 @@
 """Web UI cho audio_sub: nhập link YouTube -> subtitle.
 Chạy: python web_app.py  ->  http://127.0.0.1:5000"""
+import json
 import os
 import shutil
 import tempfile
 import threading
 import uuid
+import time
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
@@ -17,6 +19,9 @@ app.config["MAX_CONTENT_LENGTH"] = 2 * 1024**3  # 2 GB
 
 WORK_DIR = Path(tempfile.gettempdir()) / "audio_sub_jobs"
 WORK_DIR.mkdir(exist_ok=True)
+
+LIBRARY_DIR = Path(__file__).with_name("library")  # nơi lưu các bài đã bấm "Lưu"
+LIBRARY_DIR.mkdir(exist_ok=True)
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 
@@ -153,7 +158,7 @@ def create_job():
         upload_path = work / ("upload" + (Path(upload.filename or "").suffix or ".bin"))
         upload.save(upload_path)
     jobs[job_id] = {"status": "queued", "progress": 0.0, "message": "Đang chờ...",
-                    "segments": [], "name": name, "audio": upload_path}
+                    "segments": [], "name": name, "audio": upload_path, "url": url}
     threading.Thread(target=_worker, args=(job_id, url, LANGS[lang_name], upload_path), daemon=True).start()
     return jsonify(id=job_id)
 
@@ -174,6 +179,11 @@ def edit_segment(job_id, idx):
     if not job or job["status"] != "done" or not 0 <= idx < len(job["segments"]) or not text:
         return jsonify(error="Không sửa được."), 400
     job["segments"][idx]["text"] = text
+    meta_path = LIBRARY_DIR / job_id / "meta.json"
+    if meta_path.exists():  # bài đã lưu: ghi luôn chỉnh sửa vào thư viện
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["segments"] = job["segments"]
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     return jsonify(ok=True)
 
 
@@ -205,6 +215,64 @@ def job_result(job_id):
     if request.args.get("download"):
         headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(job['name'])}.{fmt}"
     return Response(body, mimetype="text/plain; charset=utf-8", headers=headers)
+
+
+def _lib_dir(item_id: str):
+    if not item_id.isalnum():
+        return None
+    d = LIBRARY_DIR / item_id
+    return d if (d / "meta.json").exists() else None
+
+
+@app.post("/api/jobs/<job_id>/save")
+def save_job(job_id):
+    job = jobs.get(job_id)
+    if not job or job["status"] != "done" or not job.get("segments"):
+        return jsonify(error="Chưa có kết quả để lưu."), 400
+    d = LIBRARY_DIR / job_id
+    d.mkdir(exist_ok=True)
+    audio = job.get("audio")
+    audio_name = None
+    if audio and Path(audio).exists():
+        audio_name = "audio" + Path(audio).suffix
+        if Path(audio).resolve() != (d / audio_name).resolve():
+            shutil.copyfile(audio, d / audio_name)
+    meta = {"name": job["name"], "url": job.get("url") or "", "audio": audio_name,
+            "saved": time.time(), "segments": job["segments"]}
+    (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return jsonify(ok=True)
+
+
+@app.get("/api/library")
+def library_list():
+    items = []
+    for meta_path in LIBRARY_DIR.glob("*/meta.json"):
+        m = json.loads(meta_path.read_text(encoding="utf-8"))
+        items.append({"id": meta_path.parent.name, "name": m["name"], "saved": m["saved"],
+                      "count": len(m["segments"])})
+    items.sort(key=lambda i: i["saved"], reverse=True)
+    return jsonify(items)
+
+
+@app.post("/api/library/<item_id>/load")
+def library_load(item_id):
+    d = _lib_dir(item_id)
+    if not d:
+        return jsonify(error="Không tìm thấy."), 404
+    m = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+    jobs[item_id] = {"status": "done", "progress": 1.0, "message": f"Đã mở — {len(m['segments'])} dòng subtitle.",
+                     "segments": m["segments"], "name": m["name"], "url": m["url"],
+                     "audio": d / m["audio"] if m["audio"] else None}
+    return jsonify(id=item_id, url=m["url"], name=m["name"])
+
+
+@app.delete("/api/library/<item_id>")
+def library_delete(item_id):
+    d = _lib_dir(item_id)
+    if not d:
+        return jsonify(error="Không tìm thấy."), 404
+    shutil.rmtree(d, ignore_errors=True)
+    return jsonify(ok=True)
 
 
 if __name__ == "__main__":
