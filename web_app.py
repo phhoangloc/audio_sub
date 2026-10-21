@@ -29,6 +29,20 @@ jobs: dict[str, dict] = {}
 run_lock = threading.Lock()  # chỉ xử lý một video tại một thời điểm
 
 
+def parse_time(value) -> float | None:
+    """'90', '1:30' hoặc '1:02:03' -> giây; rỗng -> None; sai định dạng -> ValueError."""
+    value = str(value or "").strip()
+    if not value:
+        return None
+    parts = [float(p) for p in value.split(":")]
+    if len(parts) > 3 or any(p < 0 for p in parts):
+        raise ValueError(value)
+    secs = 0.0
+    for p in parts:
+        secs = secs * 60 + p
+    return secs
+
+
 def is_youtube_url(url: str) -> bool:
     try:
         u = urlparse(url)
@@ -77,7 +91,7 @@ def download_audio(url: str, out_dir: Path, job: dict, kind: str = "audio"):
     return files[0], info.get("title") or "subtitle"
 
 
-def _worker(job_id: str, url, lang, upload_path=None):
+def _worker(job_id: str, url, lang, upload_path=None, start=0.0, end=None):
     job = jobs[job_id]
     work = WORK_DIR / job_id
     work.mkdir(exist_ok=True)
@@ -90,10 +104,12 @@ def _worker(job_id: str, url, lang, upload_path=None):
                 job.update(status="running", message="Đang tải âm thanh từ YouTube...")
                 path, title = download_audio(url, work, job)
                 job.update(name=title, progress=0.0)
-            job["segments"] = transcribe(
+            job["segments"] = []  # được thêm dần để giao diện hiện từng câu ngay khi có
+            transcribe(
                 path, lang,
                 on_status=lambda m: job.update(message=m),
-                on_progress=lambda f: job.update(progress=f))
+                on_progress=lambda f: job.update(progress=f),
+                on_segment=job["segments"].append, start=start, end=end)
         job["status"] = "done"
         job["message"] = f"Xong — {len(job['segments'])} dòng subtitle."
     except Exception as e:  # noqa: BLE001
@@ -127,6 +143,11 @@ def index():
     return render_template("index.html", langs=list(LANGS), formats=FORMATS)
 
 
+@app.get("/dictation")
+def dictation():
+    return render_template("dictation.html")
+
+
 @app.post("/api/jobs")
 def create_job():
     upload = request.files.get("file")
@@ -138,6 +159,12 @@ def create_job():
         return jsonify(error="Link không hợp lệ. Hãy dán link YouTube (youtube.com hoặc youtu.be)."), 400
     if lang_name not in LANGS:
         return jsonify(error="Tham số không hợp lệ."), 400
+    try:
+        start, end = parse_time(data.get("start")), parse_time(data.get("end"))
+    except ValueError:
+        return jsonify(error="Thời gian không hợp lệ. Dùng dạng 90, 1:30 hoặc 1:02:03."), 400
+    if end is not None and end <= (start or 0):
+        return jsonify(error="Thời điểm kết thúc phải sau thời điểm bắt đầu."), 400
 
     if mode in ("audio", "video"):
         if not is_youtube_url(url):
@@ -159,7 +186,7 @@ def create_job():
         upload.save(upload_path)
     jobs[job_id] = {"status": "queued", "progress": 0.0, "message": "Đang chờ...",
                     "segments": [], "name": name, "audio": upload_path, "url": url}
-    threading.Thread(target=_worker, args=(job_id, url, LANGS[lang_name], upload_path), daemon=True).start()
+    threading.Thread(target=_worker, args=(job_id, url, LANGS[lang_name], upload_path, start or 0.0, end), daemon=True).start()
     return jsonify(id=job_id)
 
 
@@ -168,15 +195,16 @@ def job_status(job_id):
     job = jobs.get(job_id)
     if not job:
         return jsonify(error="Không tìm thấy."), 404
-    segs = job["segments"] if job["status"] == "done" else []
-    return jsonify(status=job["status"], progress=job["progress"], message=job["message"], segments=segs)
+    segs = list(job["segments"])
+    return jsonify(status=job["status"], progress=job["progress"], message=job["message"], segments=segs,
+                   name=job.get("name", ""), url=job.get("url") or "", has_audio=bool(job.get("audio")))
 
 
 @app.put("/api/jobs/<job_id>/segments/<int:idx>")
 def edit_segment(job_id, idx):
     job = jobs.get(job_id)
     text = ((request.get_json(silent=True) or {}).get("text") or "").strip()
-    if not job or job["status"] != "done" or not 0 <= idx < len(job["segments"]) or not text:
+    if not job or job["status"] not in ("running", "done") or not 0 <= idx < len(job["segments"]) or not text:
         return jsonify(error="Không sửa được."), 400
     job["segments"][idx]["text"] = text
     meta_path = LIBRARY_DIR / job_id / "meta.json"

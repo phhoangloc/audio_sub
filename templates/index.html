@@ -16,11 +16,15 @@
   .sub { color:var(--muted); margin:0 0 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
   input[type=url] { width:100%; font:inherit; padding:12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  input.time { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
   input[type=url]:focus { outline:2px solid var(--accent); outline-offset:-1px; }
   .row { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
   label { display:flex; flex-direction:column; gap:4px; font-size:.85rem; color:var(--muted); flex:1; min-width:140px; }
   select, button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
   button { cursor:pointer; }
+  a.btn { display:inline-block; margin-bottom:10px; text-decoration:none; padding:8px 10px; border-radius:8px; border:1px solid var(--line); color:var(--fg); }
+  a.btn[hidden] { display:none; }
+  a.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   button:disabled { opacity:.5; cursor:not-allowed; }
   progress { width:100%; height:10px; margin-top:16px; }
@@ -30,15 +34,6 @@
   .tabs { display:flex; gap:6px; margin-bottom:8px; align-items:center; flex-wrap:wrap; }
   .tabs button.on { border-color:var(--accent); color:var(--accent); }
   .spacer { flex:1; }
-  #check { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
-  #check h2 { font-size:1.05rem; margin:0 0 8px; }
-  #first { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; margin:0 0 10px; }
-  #first small { color:var(--muted); display:block; }
-  #typed { height:80px; }
-  #score { margin:8px 0 0; font-weight:600; }
-  #diff { margin:6px 0 0; line-height:1.8; }
-  #diff .bad { background:color-mix(in srgb, var(--err) 25%, transparent); border-radius:4px; padding:0 3px; }
-  #diff .ok { color:var(--muted); }
   .item { display:flex; gap:8px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
   .item:first-child { border-top:0; }
   .item .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -61,11 +56,16 @@
       <span id="fname" style="color:var(--muted)"></span>
       <button id="unpick" type="button" hidden title="Bỏ file">✕</button>
     </div>
-    <audio id="aud" preload="auto" hidden></audio>
 
     <div class="row">
       <label>Ngôn ngữ
         <select id="lang">{% for l in langs %}<option>{{ l }}</option>{% endfor %}</select>
+      </label>
+      <label>Từ (bỏ trống = đầu)
+        <input id="tstart" class="time" placeholder="0:00" autocomplete="off">
+      </label>
+      <label>Đến (bỏ trống = hết)
+        <input id="tend" class="time" placeholder="5:00" autocomplete="off">
       </label>
     </div>
 
@@ -75,6 +75,7 @@
     <p id="msg"></p>
 
     <div id="out">
+      <a id="dict" class="btn primary" href="#" hidden>✍️ Chép chính tả</a>
       <div class="tabs" id="tabs">
         {% for f in formats %}<button data-fmt="{{ f }}" class="{{ 'on' if f == 'srt' }}">{{ f|upper }}</button>{% endfor %}
         <span class="spacer"></span>
@@ -84,15 +85,6 @@
       </div>
       <textarea id="text" readonly hidden></textarea>
 
-      <div id="check">
-        <h2>Kiểm tra độ chính xác <span id="pos" style="color:var(--muted);font-weight:400"></span></h2>
-        <div id="first"><small id="firstTime"></small><span id="firstText"></span> <button id="reveal" type="button" style="margin-left:8px;padding:2px 8px">👁 Hiện</button> <button id="edit" type="button" style="padding:2px 8px" title="Sửa nếu nhận dạng sai từ">✏️ Sửa</button></div>
-        <div class="tabs"><button id="play">▶ Nghe lại câu này (Shift+Space)</button><small id="playNote" style="color:var(--muted)"></small></div>
-        <div id="ytbox" style="position:absolute;left:-9999px;width:200px;height:200px"><div id="yt"></div></div>
-        <textarea id="typed" placeholder="Nghe video rồi gõ lại câu đầu tiên bạn nghe được..."></textarea>
-        <button id="cmp" class="primary">So sánh</button> <button id="skip">Bỏ qua →</button>
-        <p id="score"></p><p id="diff"></p>
-      </div>
     </div>
   </div>
 
@@ -104,49 +96,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let videoId = null, player = null, apiReady = null;
-function parseVideoId(u) {
-  try {
-    const x = new URL(u);
-    if (x.hostname === 'youtu.be') return x.pathname.slice(1).split('/')[0];
-    const m = x.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{11})/);
-    return x.searchParams.get('v') || (m && m[1]) || null;
-  } catch { return null; }
-}
-function loadApi() {
-  if (apiReady) return apiReady;
-  return apiReady = new Promise((res, rej) => {
-    window.onYouTubeIframeAPIReady = res;
-    const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; s.onerror = rej;
-    document.head.appendChild(s);
-  });
-}
-function playLocal(g) {
-  const a = $('aud');
-  const src = `api/jobs/${jobId}/audio`;
-  if (!a.src.endsWith(src)) a.src = src;
-  const stopAt = g.end + 0.3;
-  a.ontimeupdate = () => { if (a.currentTime >= stopAt) { a.pause(); a.ontimeupdate = null; } };
-  const go = () => { a.currentTime = Math.max(0, g.start); a.play().catch(() => {}); };
-  a.readyState >= 1 ? go() : a.addEventListener('loadedmetadata', go, { once: true });
-}
-$('play').onclick = async () => {
-  if (!segs[cur]) return;
-  if (isFile) return playLocal(segs[cur]);
-  if (!videoId) return;
-  const firstSeg = segs[cur];
-  $('playNote').textContent = ' Đang tải...';
-  try {
-    await loadApi();
-    const arg = { videoId, startSeconds: Math.max(0, firstSeg.start), endSeconds: firstSeg.end + 0.3 };
-    if (!player) {
-      player = new YT.Player('yt', { height: '200', width: '200', playerVars: { playsinline: 1 },
-        events: { onReady: () => { player.loadVideoById(arg); $('playNote').textContent = ''; },
-                  onError: () => $('playNote').textContent = ' Video không cho phép phát nhúng.' } });
-    } else { player.loadVideoById(arg); $('playNote').textContent = ''; }
-  } catch { $('playNote').textContent = ' Không tải được trình phát YouTube.'; }
-};
-let mode = 'subtitle', isFile = false, jobId = null, segs = [], cur = 0, fmt = 'srt', timer = null;
+let mode = 'subtitle', jobId = null, segs = [], fmt = 'srt', timer = null, live = false;
 
 const syncDl = () => { $('dlaudio').disabled = !$('url').value.trim(); };
 const canStart = () => !!($('url').value.trim() || $('file').files[0]);
@@ -185,17 +135,17 @@ $('dlaudio').onclick = () => startDownload('audio');
 $('start').onclick = async () => {
   mode = 'subtitle';
   const f = $('file').files[0];
-  isFile = !!f;
-  videoId = f ? null : parseVideoId($('url').value.trim());
   let body, headers = {};
   if (f) {
     body = new FormData();
     body.append('file', f); body.append('lang', $('lang').value);
+    body.append('start', $('tstart').value); body.append('end', $('tend').value);
   } else {
-    body = JSON.stringify({ url: $('url').value.trim(), lang: $('lang').value });
+    body = JSON.stringify({ url: $('url').value.trim(), lang: $('lang').value,
+      start: $('tstart').value, end: $('tend').value });
     headers = { 'Content-Type': 'application/json' };
   }
-  $('start').disabled = true; $('out').style.display = 'none';
+  $('start').disabled = true; $('out').style.display = 'none'; live = false;
   $('bar').hidden = false; $('bar').value = 0; msg('Đang gửi yêu cầu...');
   try {
     const r = await fetch('api/jobs', { method: 'POST', headers, body });
@@ -219,7 +169,11 @@ function poll() {
         clearInterval(timer); $('bar').hidden = true; syncDl(); $('start').disabled = !canStart();
         msg('Đã tải xong, file đang được lưu về máy.'); location.href = `api/jobs/${jobId}/file`;
       }
-      else if (j.status === 'done') { clearInterval(timer); segs = j.segments; cur = 0; finish(); }
+      else if (j.status === 'done') {
+        clearInterval(timer);
+        segs = j.segments; finish();
+      }
+      else if (mode === 'subtitle' && j.segments.length) addLive(j.segments);
       else if (j.status === 'error') { clearInterval(timer); $('start').disabled = !canStart(); syncDl(); $('bar').hidden = true; }
     } catch (e) { clearInterval(timer); msg('Mất kết nối tới server.', true); $('start').disabled = false; }
   }, 800);
@@ -228,12 +182,21 @@ function poll() {
 async function show() {
   $('text').value = await (await fetch(`api/jobs/${jobId}/result?fmt=${fmt}`)).text();
 }
-async function finish() {
-  $('start').disabled = false; $('bar').hidden = true; $('out').style.display = 'block'; await show();
-  $('check').style.display = segs.length ? 'block' : 'none';
-  if (segs.length) showSeg();
+// Hiện ngay các câu đã nhận dạng được trong lúc job còn chạy.
+function showDict() {
+  $('dict').hidden = !segs.length;
+  $('dict').href = `dictation?id=${jobId}`;
 }
-let revealed = false;
+function addLive(list) {
+  segs = list; live = true;
+  $('out').style.display = 'block'; $('tabs').style.display = 'none'; $('text').hidden = true;
+  showDict();
+}
+async function finish() {
+  live = false;
+  $('start').disabled = false; $('bar').hidden = true; $('out').style.display = 'block'; $('tabs').style.display = 'flex'; await show();
+  showDict();
+}
 async function loadLib() {
   const items = await (await fetch('api/library')).json();
   $('lib').hidden = !items.length;
@@ -241,16 +204,13 @@ async function loadLib() {
     const row = document.createElement('div'); row.className = 'item';
     const nm = Object.assign(document.createElement('span'), { className: 'nm', textContent: it.name, title: it.name });
     const info = Object.assign(document.createElement('small'), { textContent: `${it.count} câu` });
-    const open = Object.assign(document.createElement('button'), { textContent: 'Mở', className: 'primary' });
+    const open = Object.assign(document.createElement('button'), { textContent: 'Mở & chép chính tả', className: 'primary' });
     const del = Object.assign(document.createElement('button'), { textContent: '🗑', title: 'Xoá khỏi thư viện' });
     open.onclick = async () => {
       const r = await fetch(`api/library/${it.id}/load`, { method: 'POST' });
       const j = await r.json();
       if (!r.ok) return msg(j.error || 'Không mở được.', true);
-      jobId = j.id; mode = 'subtitle'; isFile = !j.url; videoId = j.url ? parseVideoId(j.url) : null;
-      const s = await (await fetch(`api/jobs/${jobId}`)).json();
-      segs = s.segments; cur = 0; msg(s.message); await finish();
-      $('out').scrollIntoView({ behavior: 'smooth' });
+      location.href = `dictation?id=${j.id}`;
     };
     del.onclick = async () => {
       if (!confirm(`Xoá "${it.name}" khỏi thư viện?`)) return;
@@ -266,67 +226,6 @@ $('save').onclick = async () => {
   if (r.ok) loadLib();
 };
 loadLib();
-const mask = t => t.replace(/[\p{L}\p{N}]/gu, '*');
-function renderFirst() {
-  const g = segs[cur];
-  $('firstText').textContent = revealed ? g.text : mask(g.text);
-  $('reveal').textContent = revealed ? '🙈 Ẩn' : '👁 Hiện';
-}
-$('edit').onclick = async () => {
-  const g = segs[cur];
-  const t = prompt('Sửa lại nội dung đúng của câu này:', g.text);
-  if (t === null || !t.trim() || t.trim() === g.text) return;
-  const res = await fetch(`api/jobs/${jobId}/segments/${cur}`, { method: 'PUT',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t.trim() }) });
-  if (!res.ok) return alert('Không lưu được chỉnh sửa.');
-  g.text = t.trim(); renderFirst(); show();
-};
-$('reveal').onclick = () => { revealed = !revealed; renderFirst(); };
-function showSeg() {
-  const g = segs[cur];
-  $('pos').textContent = `— câu ${cur + 1}/${segs.length}`;
-  $('firstTime').textContent = `${g.start.toFixed(1)}s → ${g.end.toFixed(1)}s`;
-  revealed = false; renderFirst();
-  $('typed').value = ''; $('score').textContent = ''; $('diff').textContent = '';
-  $('typed').focus();
-  if ((videoId || isFile) && cur > 0) $('play').click();
-}
-function next() {
-  if (cur + 1 < segs.length) { cur++; showSeg(); }
-  else $('score').textContent = '🎉 Đã hoàn thành tất cả các câu!';
-}
-$('skip').onclick = next;
-document.addEventListener('keydown', e => {
-  if (e.shiftKey && e.code === 'Space' && segs.length && $('check').style.display !== 'none') {
-    e.preventDefault(); $('play').click();
-  }
-});
-$('typed').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('cmp').click(); } };
-const words = t => t.toLowerCase().normalize('NFC').replace(/[^\p{L}\p{N}\s']/gu, ' ').split(/\s+/).filter(Boolean);
-$('cmp').onclick = () => {
-  if (!segs[cur]) return;
-  const a = words(segs[cur].text), b = words($('typed').value);
-  const n = a.length, m = b.length, d = Array.from({ length: n + 1 }, (_, i) => [i, ...Array(m).fill(0)]);
-  for (let j = 0; j <= m; j++) d[0][j] = j;
-  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++)
-    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
-  // truy vết để tô màu các từ sai
-  const mark = []; let i = n, j = m;
-  while (i > 0 || j > 0) {
-    if (i && j && d[i][j] === d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1)) { mark.unshift([b[j-1], a[i-1] === b[j-1]]); i--; j--; }
-    else if (i && d[i][j] === d[i-1][j] + 1) { mark.unshift([`(thiếu: ${a[i-1]})`, false]); i--; }
-    else { mark.unshift([b[j-1], false]); j--; }
-  }
-  const acc = n ? Math.max(0, 1 - d[n][m] / Math.max(n, m)) : 0;
-  $('score').textContent = `Độ chính xác: ${(acc * 100).toFixed(0)}% (${d[n][m]} lỗi / ${n} từ)`;
-  if (n && d[n][m] === 0) {
-    $('score').textContent += ' ✓ Chính xác! Chuyển sang câu tiếp theo...';
-    if (cur + 1 >= segs.length) { $('score').textContent = '🎉 Đúng hết! Đã hoàn thành tất cả các câu.'; return; }
-    setTimeout(next, 900);
-  }
-  $('diff').replaceChildren(...mark.map(([w, ok]) => Object.assign(document.createElement('span'),
-    { className: ok ? 'ok' : 'bad', textContent: w + ' ' })));
-};
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-fmt]'); if (!b) return;
   fmt = b.dataset.fmt;

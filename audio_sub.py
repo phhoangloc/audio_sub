@@ -6,6 +6,7 @@ CLI:  python audio_sub.py input.mp3 [-l vi] [-f srt|vtt|txt]
 import argparse
 import os
 import queue
+import re
 import threading
 from pathlib import Path
 
@@ -36,6 +37,12 @@ MODEL = "large-v3"  # model mạnh nhất, cố định
 LANGS = {"Tự động": None, "Tiếng Việt": "vi", "English": "en", "日本語": "ja",
          "한국어": "ko", "中文": "zh", "Français": "fr", "Deutsch": "de", "Español": "es"}
 MODEL_DIR = Path(__file__).parent / "models"  # model tải về nằm trong dự án, khỏi tải lại
+SENTENCE_END = (".", ",", "!", "?", ";", "。", "、", "，", "．", "！", "？", "…")  # dấu kết thúc một dòng subtitle
+PAUSE_BREAK = 0.5  # giây: khoảng nghỉ giữa hai từ từ mức này trở lên thì ngắt dòng
+# Thuật ngữ hay bị nhận nhầm: HOTWORDS gợi ý cho model, FIXES sửa lại chữ còn sai sau khi nhận dạng.
+HOTWORDS = "Claude Code, Claude, Anthropic"
+FIXES = [(re.compile(r"\b(?:cloud|clawed?|clod|claud)([\s-]*)code\b", re.I), r"Claude\1Code"),
+         (re.compile(r"\bcloud\s+(?=(?:ai|opus|sonnet|haiku)\b)", re.I), "Claude ")]
 FORMATS = ["srt", "vtt", "txt"]
 AUDIO_TYPES = [("Audio/Video", "*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma *.mp4 *.mkv *.webm *.mov"),
                ("Tất cả", "*.*")]
@@ -63,19 +70,28 @@ def format_segments(segments, fmt: str) -> str:
     return "\n".join(out)
 
 
-def transcribe(path, language, on_status=print, on_progress=lambda f: None):
+def transcribe(path, language, on_status=print, on_progress=lambda f: None, on_segment=lambda s: None,
+               start=0.0, end=None):
+    """start/end (giây): chỉ nhận dạng đoạn này; mốc thời gian trả về vẫn tính theo file gốc."""
     from faster_whisper import WhisperModel
+    from faster_whisper.audio import decode_audio
 
     if (MODEL_DIR / f"models--Systran--faster-whisper-{MODEL}").is_dir():
         on_status(f"Đang nạp model '{MODEL}' từ thư mục models...")
     else:
         on_status(f"Đang tải model '{MODEL}' (lần đầu sẽ tải về, có thể mất vài phút)...")
     model = WhisperModel(MODEL, device="auto", compute_type="auto", download_root=str(MODEL_DIR))
+    audio = str(path)
+    if start or end:
+        sr = 16000
+        audio = decode_audio(audio, sampling_rate=sr)[int(start * sr):int(end * sr) if end else None]
+        if not len(audio):
+            raise ValueError("Đoạn đã chọn nằm ngoài thời lượng của file.")
     on_status("Đang nhận dạng giọng nói...")
     # Nhạc nền/khoảng lặng dễ làm Whisper "ảo giác" ra chữ lặp như "ん": tắt condition_on_previous_text
     # để lỗi không lan sang đoạn sau, và loại đoạn mà model tự thấy là không có tiếng nói.
     gen, info = model.transcribe(
-        str(path),
+        audio,
         language=language,
         vad_filter=True,
         vad_parameters={"threshold": 0.5, "min_silence_duration_ms": 500, "speech_pad_ms": 200},
@@ -83,18 +99,37 @@ def transcribe(path, language, on_status=print, on_progress=lambda f: None):
         no_speech_threshold=0.5,
         compression_ratio_threshold=2.0,
         temperature=[0.0, 0.2, 0.4],
+        hotwords=HOTWORDS,
+        word_timestamps=True,  # để tự cắt dòng theo dấu câu
     )
     on_status(f"Ngôn ngữ: {info.language} ({info.language_probability:.0%}) — thời lượng {info.duration:.0f}s")
     segments = []
+    buf = []  # các từ của câu đang gom dở; cắt dòng tại dấu câu thay vì theo ranh giới của Whisper
+
+    def flush():
+        text = "".join(w.word for w in buf).strip()
+        for pat, rep in FIXES:
+            text = pat.sub(rep, text)
+        if text:
+            segments.append({"start": buf[0].start + start, "end": buf[-1].end + start, "text": text})
+            on_segment(segments[-1])
+        buf.clear()
+
     for seg in gen:
         text = seg.text.strip()
         if seg.no_speech_prob > 0.6 and seg.avg_logprob < -0.8:
             continue
         if len(text) <= 3 and len(set(text)) == 1 and segments and segments[-1]["text"] == text:
             continue
-        segments.append({"start": seg.start, "end": seg.end, "text": text})
+        for w in seg.words or []:
+            if buf and w.start - buf[-1].end >= PAUSE_BREAK:  # người nói nghỉ lấy hơi
+                flush()
+            buf.append(w)
+            if w.word.strip().endswith(SENTENCE_END):
+                flush()
         if info.duration:
-            on_progress(min(seg.end / info.duration, 1.0))
+            on_progress(min(seg.end / info.duration, 1.0))  # info.duration là độ dài đoạn đã cắt
+    flush()
     on_progress(1.0)
     return segments
 
