@@ -8,7 +8,7 @@
   :root { color-scheme:dark; --bg:#0d0f13; --card:rgba(10,11,15,.82); --fg:#e8eaee; --muted:#a4adbb; --line:rgba(255,255,255,.16); --accent:#6b8cff; --err:#ff6b5e; }
   * { box-sizing: border-box; }
   body { margin:0; min-height:100vh; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, "Segoe UI", sans-serif; }
-  #bg { position:fixed; inset:0; z-index:-1; background:var(--bg) center / cover no-repeat; filter:blur(6px) brightness(.22); transform:scale(1.05); }
+  #bg { position:fixed; left:0; right:0; top:50%; height:400px; max-height:100vh; transform:translateY(-50%); z-index:-1; background:center / contain no-repeat; filter:blur(6px) brightness(.22); }
   main { min-height:100vh; width:100%; max-width:none; margin:0; padding:0; display:flex; flex-direction:column; }
   main > .card { flex:1; }
   .card { background:none; border:0; padding:0; }
@@ -43,6 +43,11 @@
   #segList[hidden] { display:none; }
   #segList .box { width:min(720px, 100%); max-height:80vh; overflow-y:auto; background:#14161c; border:1px solid var(--line); border-radius:12px; }
   #segList .sg { display:flex; color:var(--fg); gap:10px; width:100%; text-align:left; border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; padding:8px 10px; }
+  #segList .sg { cursor:pointer; align-items:center; }
+  #segList .sg .tx { flex:1; }
+  #segList .sg .ed { flex:none; padding:2px 6px; background:transparent; border:0; opacity:.5; }
+  #segList .sg .ed:hover { opacity:1; }
+  #segList .sg .ei { flex:1; font:inherit; color:var(--fg); background:#0d0f13; border:1px solid var(--accent); border-radius:6px; padding:4px 6px; }
   #segList .sg:first-child { border-top:0; }
   #segList .sg:hover { background:rgba(255,255,255,.08); }
   #segList .sg.on { background:color-mix(in srgb, var(--accent) 15%, transparent); }
@@ -235,8 +240,9 @@ $('reveal').onclick = () => { revealed = !revealed; renderSub(); $('typed').focu
 $('typed').oninput = () => { checked = false; renderBlanks(); renderSub(); };
 // Bộ gõ IME (tiếng Nhật/Trung/Hàn): chữ đang soạn cũng hiện ngay trong hàng gạch, khung gợi ý nằm ở góc dưới màn hình để không che chữ.
 ['compositionstart', 'compositionupdate', 'compositionend'].forEach(ev => $('typed').addEventListener(ev, () => { checked = false; renderBlanks(); renderSub(); }));
-$('typed').onblur = () => setTimeout(() => $('typed').focus(), 0);  // luôn giữ focus để gõ phím vào là nhận
+$('typed').onblur = () => setTimeout(() => { if ($('segList').hidden) $('typed').focus(); }, 0);  // luôn giữ focus để gõ phím vào là nhận
 function showSeg() {
+  clearTimeout(advanceTimer); $('typed').readOnly = false;
   const g = segs[cur];
   $('pos').textContent = `${cur + 1}/${segs.length}`;
   revealed = false; checked = false; $('typed').value = ''; renderFirst(); $('typed').focus();
@@ -246,16 +252,39 @@ function showSeg() {
 function renderSegList() {
   const box = Object.assign(document.createElement('div'), { className: 'box' });
   box.append(...segs.map((g, i) => {
-    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'sg' + (i === cur ? ' on' : '') });
-    b.append(Object.assign(document.createElement('small'), { textContent: `${i + 1}.` }),
-             Object.assign(document.createElement('span'), { textContent: g.text }));
-    b.onclick = () => { cur = i; showSeg(); $('segList').hidden = true; $('check').scrollIntoView({ behavior: 'smooth' }); };
-    return b;
+    const row = Object.assign(document.createElement('div'), { className: 'sg' + (i === cur ? ' on' : '') });
+    const txt = Object.assign(document.createElement('span'), { textContent: g.text, className: 'tx' });
+    const edit = Object.assign(document.createElement('button'), { type: 'button', textContent: '✏️', title: 'Sửa câu này', className: 'ed' });
+    row.append(Object.assign(document.createElement('small'), { textContent: `${i + 1}.` }), txt, edit);
+    row.onclick = () => { cur = i; showSeg(); $('segList').hidden = true; $('check').scrollIntoView({ behavior: 'smooth' }); };
+    edit.onclick = e => {
+      e.stopPropagation();
+      const inp = Object.assign(document.createElement('input'), { type: 'text', value: g.text, className: 'ei' });
+      let done = false;
+      const finish = async save => {
+        if (done) return; done = true;
+        const t = inp.value.trim();
+        if (save && t && t !== g.text) {
+          const r = await fetch(`api/jobs/${encodeURIComponent(jobId)}/segments/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) });
+          if (r.ok) { g.text = t; if (i === cur) showSeg(); } else hint('Không lưu được chỗ sửa.');
+        }
+        txt.textContent = g.text; inp.replaceWith(txt); edit.hidden = false;
+      };
+      inp.onclick = ev => ev.stopPropagation();
+      inp.onkeydown = ev => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') finish(true);
+        else if (ev.key === 'Escape') finish(false);
+      };
+      inp.onblur = () => finish(true);
+      txt.replaceWith(inp); edit.hidden = true; inp.focus(); inp.select();
+    };
+    return row;
   }));
   $('segList').replaceChildren(box);
 }
-$('segList').onclick = e => { if (e.target === $('segList')) $('segList').hidden = true; };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('segList').hidden = true; });
+$('segList').onclick = e => { if (e.target === $('segList')) { $('segList').hidden = true; $('typed').focus(); } };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('segList').hidden) { $('segList').hidden = true; $('typed').focus(); } });
 $('pickSeg').onclick = () => {
   $('segList').hidden = !$('segList').hidden;
   if (!$('segList').hidden) { renderSegList(); $('segList').querySelector('.on')?.scrollIntoView({ block: 'center' }); }
@@ -266,15 +295,20 @@ const answerWords = () => segs[cur].text.split(/\s+/).map(t => norm(Array.from(t
 const typedWords = () => $('typed').value.trim().split(/\s+/).filter(Boolean).map(t => Array.from(t).filter(c => LETTER.test(c) || /['’]/.test(c)).join('').toLowerCase().replace(/’/g, "'"));
 let hintTimer = null;
 function hint(t) { $('playNote').textContent = t; clearTimeout(hintTimer); hintTimer = setTimeout(() => $('playNote').textContent = '', 4000); }
+let advanceTimer = null;
 function checkAnswer() {
-  if (!segs[cur]) return;
+  if (!segs[cur] || $('typed').readOnly) return;
   const want = answerWords(), got = typedWords();
   // chưa gõ đủ chữ ứng với các dấu gạch thì chưa cho kiểm tra
   if (got.length < want.length || want.some((w, i) => Array.from(got[i]).length < Array.from(w).length)) return hint('Chưa gõ đủ chữ.');
   if (want.length === got.length && want.every((w, i) => w === got[i])) {
-    if (cur + 1 < segs.length) { cur++; showSeg(); }
+    revealed = true; renderSub();  // đúng: hiện hết sub, đợi 1 giây rồi mới qua câu mới
+    if (cur + 1 < segs.length) {
+      $('typed').readOnly = true;
+      advanceTimer = setTimeout(() => { cur++; showSeg(); }, 1000);
+    }
     else if (live) hint('Đúng! Đang nhận dạng câu tiếp theo, đợi một chút...');
-    else { revealed = true; renderSub(); msg('🎉 Đã hoàn thành tất cả các câu!'); }
+    else { msg('🎉 Đã hoàn thành tất cả các câu!'); }
   } else {  // sai: hiện toàn bộ sub và tô đỏ các từ/chữ sai
     revealed = true; checked = true; renderSub(); renderBlanks();
     const n = want.filter((w, i) => w !== got[i]).length + Math.max(0, got.length - want.length);
