@@ -1,4 +1,0 @@
-faster-whisper>=1.0
-av>=11,<18
-flask>=3.0
-yt-dlp

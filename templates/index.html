@@ -59,7 +59,7 @@
 
     <div class="row">
       <label>Ngôn ngữ
-        <select id="lang">{% for l in langs %}<option>{{ l }}</option>{% endfor %}</select>
+        <select id="lang">__LANG_OPTIONS__</select>
       </label>
       <label>Từ (bỏ trống = đầu)
         <input id="tstart" class="time" placeholder="0:00" autocomplete="off">
@@ -77,7 +77,7 @@
     <div id="out">
       <a id="dict" class="btn primary" href="#" hidden>✍️ Chép chính tả</a>
       <div class="tabs" id="tabs">
-        {% for f in formats %}<button data-fmt="{{ f }}" class="{{ 'on' if f == 'srt' }}">{{ f|upper }}</button>{% endfor %}
+        __FORMAT_BUTTONS__
         <span class="spacer"></span>
         <button id="save" title="Lưu vào thư viện để mở lại lần sau">💾 Lưu</button>
         <button id="copy">Sao chép</button>

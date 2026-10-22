@@ -32,12 +32,20 @@
   .spacer { flex:1; }
   #check { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
   #check h2 { font-size:1.05rem; margin:0 0 8px; }
-  #first { position:fixed; left:50%; bottom:8vh; transform:translateX(-50%); width:min(960px, 92vw); text-align:center; font-size:clamp(1.3rem, 2.6vw, 2rem); line-height:1.5; text-shadow:0 2px 8px rgba(0,0,0,.9); background:none; border:0; padding:0; margin:0; }
-  #blanks { margin-top:14px; word-break:break-all; letter-spacing:5px; }
-  #first .y, #blanks .y { color:#ffd84d; }
-  #first .bad, #blanks .bad { color:var(--err); }
-  #blanks .cursor { color:#ffd84d; animation:blink 1s steps(1) infinite; }
+  #first { position:fixed; left:50%; bottom:8vh; transform:translateX(-50%); width:min(960px, 92vw); text-align:left; white-space:nowrap; overflow:hidden; font-size:clamp(1.3rem, 2.6vw, 2rem); line-height:1.5; text-shadow:0 2px 8px rgba(0,0,0,.9); background:none; border:0; padding:0; margin:0; }
+  #first .y { color:#ffd84d; }
+  #first .bad { color:var(--err); }
   @keyframes blink { 50% { opacity:0; } }
+  #firstText { display:inline-block; transition:transform .15s ease-out; }
+  /* ô nhập nhỏ dưới dòng sub (bật bằng nút ⌨): thấy được chữ đang gõ, khung gợi ý của IME hiện ngay bên dưới */
+  #typed.vis { opacity:1 !important; pointer-events:auto !important; left:50% !important; bottom:2.5vh !important; transform:translateX(-50%); width:min(420px, 80vw) !important; height:auto !important; padding:6px 10px !important; text-align:center; color:var(--fg); background:rgba(20,22,28,.9); border:1px solid var(--line) !important; border-radius:8px; outline:none; }
+  #typed.vis:focus { border-color:var(--accent) !important; }
+  #first .sep { white-space:pre; color:var(--muted); }
+  #first .pv { color:#ffd84d; white-space:pre; }
+  #first .nx { opacity:.4; white-space:pre; }
+  #first .sp { white-space:pre; }
+  #first .cw.sp { text-decoration-color:var(--err); }
+  #first .cw { text-decoration:underline; text-decoration-color:#ffd84d; text-decoration-thickness:3px; text-underline-offset:6px; }
   #first small { color:var(--muted); display:block; }
   #segList { position:fixed; inset:0; z-index:10; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.6); padding:16px; }
   #segList[hidden] { display:none; }
@@ -74,10 +82,11 @@
       <span id="pos" style="color:var(--muted)"></span>
       <button id="pickSeg" type="button" title="Chọn câu" aria-label="Chọn câu" style="padding:2px 8px">📜</button>
       <button id="reveal" type="button" title="Hiện / ẩn sub" aria-label="Hiện / ẩn sub" style="padding:2px 8px">👁</button>
+      <button id="showInput" type="button" title="Hiện / ẩn ô nhập" aria-label="Hiện / ẩn ô nhập" style="padding:2px 8px">⌨</button>
     </div>
     <div id="segList" hidden></div>
     <input id="typed" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Gõ câu bạn nghe được" style="position:fixed;left:0;bottom:0;width:1px;height:1.5em;font-size:16px;opacity:0;border:0;padding:0;pointer-events:none">
-    <div id="first"><span id="firstText"></span><div id="blanks"></div></div>
+    <div id="first"><span id="firstText"></span></div>
     <div class="tabs"><small id="playNote" style="color:var(--muted)"></small></div>
     <div id="ytbox" style="position:absolute;left:-9999px;width:200px;height:200px"><div id="yt"></div></div>
   </div>
@@ -177,48 +186,28 @@ function renderFirst() {
   const g = segs[cur];
   renderSub();
   // mỗi từ (tách theo khoảng trắng) là một ô gạch dài theo số chữ của từ đó
-  renderBlanks();
 }
 // Ký tự được tính là một ô: chữ, số, và dấu nháy đơn nằm giữa hai chữ (don't, what's).
 const LETTER = /[\p{L}\p{N}]/u;
 const isSlot = (chars, i) => LETTER.test(chars[i]) || (/['’]/.test(chars[i]) && i > 0 && i < chars.length - 1 && LETTER.test(chars[i - 1]) && LETTER.test(chars[i + 1]));
 const slotCount = tok => { const c = Array.from(tok); return c.filter((_, i) => isSlot(c, i)).length; };
-let checked = false;  // true sau một lần Ctrl+Enter sai, tới khi gõ tiếp thì thôi: dùng để tô đỏ chỗ sai
+let checked = false;  // không còn đặt true (không tô đỏ chỗ sai nữa); giữ để renderSub dùng chung
 // Hàng dấu gạch: mỗi từ của câu là một nhóm gạch; chữ gõ vào ô ẩn #typed thay dần các gạch, dấu cách nhảy sang từ kế tiếp.
-function renderBlanks() {
-  const g = segs[cur]; if (!g) return;
-  const lens = g.text.split(/\s+/).map(slotCount).filter(Boolean);
-  const tokens = $('typed').value.split(/\s+/);
-  const want = checked ? answerWords() : [];
-  const k = tokens.length - 1;  // từ đang gõ
-  const cursorWord = Array.from(tokens[k]).length >= lens[k] ? k + 1 : k;
-  const out = [];
-  lens.forEach((n, i) => {
-    if (i) out.push(' ');
-    const chars = Array.from(tokens[i] || '');
-    for (let c = 0; c < n; c++) {
-      const sp = document.createElement('span');
-      if (c < chars.length) {
-        sp.textContent = chars[c]; sp.className = 'y';
-        if (checked && chars[c].toLowerCase().replace(/’/g, "'") !== Array.from(want[i] || '')[c]) sp.className += ' bad';
-      }
-      else {
-        sp.textContent = '_';
-        if (i === cursorWord && c === (i === k ? chars.length : 0)) sp.className = 'cursor';
-      }
-      out.push(sp);
-    }
-  });
-  $('blanks').replaceChildren(...out);
-}
 // Dòng sub (đang che bằng dấu *): chữ nào đã được gõ vào thì dấu * tương ứng đổi sang vàng.
+// Chữ đang soạn trong ô gợi ý của bộ gõ (IME) chưa được tính: chỉ chữ đã chốt bằng Enter mới hiện vào dòng sub.
+let composing = false, committed = '';  // committed: chữ đã chốt, không gồm chữ đang soạn trong ô gợi ý của IME
 function renderSub() {
   const g = segs[cur]; if (!g) return;
-  const tokens = $('typed').value.split(/\s+/);
+  const tokens = committed.split(/\s+/);
   const want = checked ? answerWords() : [], got = checked ? typedWords() : [];
-  let wi = -1;
+  let wi = -1, curWord = null, lastSp = null;  // curWord: ký tự kế tiếp cần gõ
   const out = g.text.split(/(\s+)/).map(tok => {
-    if (/^\s+$/.test(tok)) return tok;
+    if (/^\s+$/.test(tok)) {  // khoảng trắng cũng là một vị trí: gõ xong từ thì thanh nằm ở đây (màu đỏ) tới khi gõ dấu cách
+      const s = document.createElement('span');
+      s.className = 'sp'; s.textContent = ' ';
+      if (!curWord && wi >= 0 && wi === tokens.length - 1) { curWord = s; s.classList.add('cw'); }
+      return s;
+    }
     const wrap = document.createDocumentFragment();
     let li = 0, hasLetter = false;
     const chars = Array.from(tok);
@@ -228,24 +217,66 @@ function renderSub() {
       if (!hasLetter) { hasLetter = true; wi++; }
       const sp = document.createElement('span');
       sp.textContent = revealed ? ch : '*';
-      if (li < Array.from(tokens[wi] || '').length) sp.className = 'y';
+      const tc = Array.from(tokens[wi] || '')[li];  // ký tự đã gõ ở ô này: đúng thì hiện chữ thật, sai vẫn là *
+      if (tc !== undefined) {
+        sp.className = 'y';
+        if (tc.toLowerCase().replace(/’/g, "'") === ch.toLowerCase().replace(/’/g, "'")) sp.textContent = ch;
+      }
       if (checked && got[wi] !== want[wi]) sp.className += ' bad';
+      if (!curWord && !sp.classList.contains('y')) { curWord = sp; sp.classList.add('cw'); }
+      lastSp = sp;
       wrap.append(sp); li++;
     }
-    return wrap;
+    const w = document.createElement('span');
+    w.className = 'w'; w.append(wrap);
+    return w;
   });
+  const prevSeg = segs[cur - 1];  // câu trước đã đánh: hiện nguyên chữ (màu vàng), nối liền trước câu hiện tại
+  if (prevSeg) {
+    const pv = document.createElement('span');
+    pv.className = 'pv'; pv.textContent = prevSeg.text;
+    const sep0 = document.createElement('span');
+    sep0.className = 'sep'; sep0.textContent = ' ';
+    out.unshift(pv, sep0);
+  }
+  const next = segs[cur + 1];  // câu kế tiếp nối liền sau câu hiện tại, không có dấu / (vẫn che bằng *)
+  if (next) {
+    const sep = document.createElement('span');
+    sep.className = 'sep'; sep.textContent = ' ';
+    const nx = document.createElement('span');
+    nx.className = 'nx';
+    nx.textContent = next.text.split(/(\s+)/).map(tok => {
+      const chars = Array.from(tok);
+      return /^\s+$/.test(tok) ? ' ' : chars.map((c, i) => isSlot(chars, i) ? '*' : c).join('');
+    }).join('');
+    out.push(sep, nx);
+  }
   $('firstText').replaceChildren(...out);
+  const ft = $('firstText');
+  const at = curWord || lastSp;  // gõ xong hết thì giữ ký tự cuối ở giữa
+  ft.style.transform = at ? `translateX(${$('first').clientWidth / 2 - (at.offsetLeft + at.offsetWidth / 2)}px)` : '';
 }
+window.addEventListener('resize', () => renderSub());
+$('showInput').onclick = () => { $('typed').classList.toggle('vis'); $('typed').focus(); };
 $('reveal').onclick = () => { revealed = !revealed; renderSub(); $('typed').focus(); };
-$('typed').oninput = () => { checked = false; renderBlanks(); renderSub(); };
+$('typed').oninput = e => {
+  composing = e.isComposing;  // đang soạn trong ô gợi ý của IME thì chưa tính
+  if (!composing) committed = $('typed').value;
+  checked = false; renderSub(); autoCheck();
+};
 // Bộ gõ IME (tiếng Nhật/Trung/Hàn): chữ đang soạn cũng hiện ngay trong hàng gạch, khung gợi ý nằm ở góc dưới màn hình để không che chữ.
-['compositionstart', 'compositionupdate', 'compositionend'].forEach(ev => $('typed').addEventListener(ev, () => { checked = false; renderBlanks(); renderSub(); }));
+['compositionstart', 'compositionupdate', 'compositionend'].forEach(ev => $('typed').addEventListener(ev, e => {
+  if (e.type === 'compositionstart') composing = true;
+  else if (e.type === 'compositionend') { composing = false; committed = $('typed').value; }
+  checked = false; renderSub();
+  if (e.type === 'compositionend') autoCheck();
+}));
 $('typed').onblur = () => setTimeout(() => { if ($('segList').hidden) $('typed').focus(); }, 0);  // luôn giữ focus để gõ phím vào là nhận
 function showSeg() {
   clearTimeout(advanceTimer); $('typed').readOnly = false;
   const g = segs[cur];
   $('pos').textContent = `${cur + 1}/${segs.length}`;
-  revealed = false; checked = false; $('typed').value = ''; renderFirst(); $('typed').focus();
+  revealed = false; checked = false; $('typed').value = ''; committed = ''; composing = false; renderFirst(); $('typed').focus();
   if (videoId || isFile) playCurrent();
 }
 // Chế độ chọn câu: cửa sổ hiện toàn bộ script, bấm vào câu nào thì chép câu đó.
@@ -292,16 +323,15 @@ $('pickSeg').onclick = () => {
 // So với đáp án: bỏ dấu câu, không phân biệt hoa/thường.
 const norm = chars => chars.filter((_, i) => isSlot(chars, i)).join('').toLowerCase().replace(/’/g, "'");
 const answerWords = () => segs[cur].text.split(/\s+/).map(t => norm(Array.from(t))).filter(Boolean);
-const typedWords = () => $('typed').value.trim().split(/\s+/).filter(Boolean).map(t => Array.from(t).filter(c => LETTER.test(c) || /['’]/.test(c)).join('').toLowerCase().replace(/’/g, "'"));
+const typedWords = () => committed.trim().split(/\s+/).filter(Boolean).map(t => Array.from(t).filter(c => LETTER.test(c) || /['’]/.test(c)).join('').toLowerCase().replace(/’/g, "'"));
 let hintTimer = null;
 function hint(t) { $('playNote').textContent = t; clearTimeout(hintTimer); hintTimer = setTimeout(() => $('playNote').textContent = '', 4000); }
 let advanceTimer = null;
-function checkAnswer() {
-  if (!segs[cur] || $('typed').readOnly) return;
+// Tự kiểm tra mỗi lần gõ (không dùng phím tắt): gõ đúng cả câu thì qua câu sau, sai hoặc chưa đủ thì giữ nguyên để sửa tiếp.
+function autoCheck() {
+  if (composing || !segs[cur] || $('typed').readOnly) return;
   const want = answerWords(), got = typedWords();
-  // chưa gõ đủ chữ ứng với các dấu gạch thì chưa cho kiểm tra
-  if (got.length < want.length || want.some((w, i) => Array.from(got[i]).length < Array.from(w).length)) return hint('Chưa gõ đủ chữ.');
-  if (want.length === got.length && want.every((w, i) => w === got[i])) {
+  if (want.length && want.length === got.length && want.every((w, i) => w === got[i])) {
     revealed = true; renderSub();  // đúng: hiện hết sub, đợi 1 giây rồi mới qua câu mới
     if (cur + 1 < segs.length) {
       $('typed').readOnly = true;
@@ -309,17 +339,12 @@ function checkAnswer() {
     }
     else if (live) hint('Đúng! Đang nhận dạng câu tiếp theo, đợi một chút...');
     else { msg('🎉 Đã hoàn thành tất cả các câu!'); }
-  } else {  // sai: hiện toàn bộ sub và tô đỏ các từ/chữ sai
-    revealed = true; checked = true; renderSub(); renderBlanks();
-    const n = want.filter((w, i) => w !== got[i]).length + Math.max(0, got.length - want.length);
-    hint(`Chưa đúng: ${n} từ sai (tô đỏ). Sửa lại rồi nhấn Ctrl+Enter.`);
   }
 }
-// Ctrl+Space: nghe lại câu hiện tại. Ctrl+Enter: kiểm tra.
+// Ctrl+Space: nghe lại câu hiện tại.
 document.addEventListener('keydown', e => {
   if (e.isComposing || !e.ctrlKey || !segs.length || $('check').style.display === 'none') return;
   if (e.code === 'Space') { e.preventDefault(); playCurrent(); }
-  else if (e.key === 'Enter') { e.preventDefault(); checkAnswer(); }
 });
 load();
 $('typed').focus();
