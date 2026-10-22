@@ -7,5 +7,3 @@ models.zip
 node_modules/
 dist/
 bin/
-
-library/
