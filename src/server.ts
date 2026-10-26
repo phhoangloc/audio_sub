@@ -67,6 +67,10 @@ app.get("/dictation", (_req, res) => {
   res.type("html").send(render("dictation.html"));
 });
 
+app.get("/dictation-penguin", (_req, res) => {
+  res.type("html").send(render("dictation-penguin.html"));
+});
+
 async function subtitleWorker(id: string, lang: string | null, upl: string | null, start: number, end: number | null) {
   const job = jobs.get(id)!;
   const work = path.join(WORK_DIR, id);
@@ -248,6 +252,19 @@ app.post("/api/library/:id/load", (req, res) => {
     segments: m.segments, name: m.name, url: m.url, audio: m.audio ? path.join(d, m.audio) : null,
   });
   res.json({ id: req.params.id, url: m.url, name: m.name });
+});
+
+app.patch("/api/library/:id", (req, res) => {
+  const d = libDir(req.params.id);
+  if (!d) return res.status(404).json({ error: "Không tìm thấy." });
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  if (!name) return res.status(400).json({ error: "Tên không được để trống." });
+  const m = readMeta(d);
+  m.name = name;
+  fs.writeFileSync(path.join(d, "meta.json"), JSON.stringify(m));
+  const job = jobs.get(req.params.id);
+  if (job) job.name = name;
+  res.json({ ok: true, name });
 });
 
 app.delete("/api/library/:id", (req, res) => {

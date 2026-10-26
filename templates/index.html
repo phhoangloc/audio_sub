@@ -11,7 +11,7 @@
   }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, "Segoe UI", sans-serif; }
-  main { max-width:760px; margin:0 auto; padding:32px 16px; }
+  main { max-width:1200px; margin:0 auto; padding:32px 16px; }
   h1 { font-size:1.5rem; margin:0 0 4px; }
   .sub { color:var(--muted); margin:0 0 20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
@@ -205,7 +205,17 @@ async function loadLib() {
     const nm = Object.assign(document.createElement('span'), { className: 'nm', textContent: it.name, title: it.name });
     const info = Object.assign(document.createElement('small'), { textContent: `${it.count} câu` });
     const open = Object.assign(document.createElement('button'), { textContent: 'Mở & chép chính tả', className: 'primary' });
+    const ren = Object.assign(document.createElement('button'), { textContent: '✏', title: 'Đổi tên' });
     const del = Object.assign(document.createElement('button'), { textContent: '🗑', title: 'Xoá khỏi thư viện' });
+    ren.onclick = async () => {
+      const name = prompt('Tên mới:', it.name);
+      if (name === null || !name.trim() || name.trim() === it.name) return;
+      const r = await fetch(`api/library/${it.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) return msg((await r.json()).error || 'Không đổi được tên.', true);
+      loadLib();
+    };
     open.onclick = async () => {
       const r = await fetch(`api/library/${it.id}/load`, { method: 'POST' });
       const j = await r.json();
@@ -216,7 +226,7 @@ async function loadLib() {
       if (!confirm(`Xoá "${it.name}" khỏi thư viện?`)) return;
       await fetch(`api/library/${it.id}`, { method: 'DELETE' }); loadLib();
     };
-    row.append(nm, info, open, del); return row;
+    row.append(nm, info, open, ren, del); return row;
   }));
 }
 $('save').onclick = async () => {

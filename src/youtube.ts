@@ -24,8 +24,9 @@ function run(args: string[], onLine: (l: string) => void, i = 0): Promise<void> 
   const [cmd, ...pre] = LAUNCHERS[i];
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, [...pre, ...args]);
-    let err = "", buf = "", missing = false;
+    let err = "", buf = "", missing = false, started = false;
     p.stdout.on("data", (d) => {
+      started = true;
       buf += d;
       const lines = buf.split(/\r?\n/);
       buf = lines.pop() ?? "";
@@ -40,6 +41,8 @@ function run(args: string[], onLine: (l: string) => void, i = 0): Promise<void> 
     p.on("close", (code) => {
       if (missing) return; // không có lệnh này: đã chuyển sang launcher kế (hoặc đã báo lỗi)
       if (code === 0) return resolve();
+      // Crash khi khởi động (vd. 0xC0000142 thiếu DLL, không in gì): thử launcher kế tiếp.
+      if (!started && !err.trim() && i + 1 < LAUNCHERS.length) return run(args, onLine, i + 1).then(resolve, reject);
       reject(new Error(err.trim().split("\n").pop() || `yt-dlp thoát với mã ${code}`));
     });
   });

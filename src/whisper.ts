@@ -9,7 +9,9 @@ const ffmpegPath: string | null = createRequire(import.meta.url)("ffmpeg-static"
 const WHISPER_CLI = path.join(ROOT, "bin", "whisper", "Release", "whisper-cli.exe");
 const MODEL = path.join(ROOT, "models", "ggml-large-v3-turbo-q5_0.bin");
 const HOTWORDS = "Claude Code, Claude, Anthropic";
+const MISHEARD = /\bcloud\s+code\b/gi; // whisper hay nghe nhầm "Claude Code" thành "Cloud Code"
 const PAUSE_BREAK = 0.5; // giây: người nói nghỉ từ mức này trở lên thì ngắt dòng
+const MIN_WORDS = 10; // một dòng phải có ít nhất chừng này từ mới được ngắt
 const CJK = /[぀-ヿ㐀-鿿가-힯]/;
 const SENTENCE_END = /[.,!?;。、，．！？…]$/; // dấu kết thúc một dòng subtitle
 const FIXES: [RegExp, string][] = [[/\b(?:cloud|clawed?|clod|claud)([\s-]*)code\b/gi, "Claude$1Code"]];
@@ -59,21 +61,25 @@ export async function transcribe(
     const segments: Segment[] = [];
     let line: Segment | null = null; // dòng đang gom dở
     let prev: Word | null = null;
+    let count = 0; // số từ của dòng đang gom
     const flush = () => {
       if (!line) return;
+      line.text = line.text.replace(MISHEARD, "Claude Code");
       segments.push(line);
       cb.onSegment(line);
       line = null;
+      count = 0;
     };
     const addWord = (w: Word) => {
       let text = w.text;
-      if (line && prev && (SENTENCE_END.test(prev.text) || w.start - speechEnd(prev) >= PAUSE_BREAK)) {
+      if (line && prev && count >= MIN_WORDS && (SENTENCE_END.test(prev.text) || w.start - speechEnd(prev) >= PAUSE_BREAK)) {
         line.end = Math.max(line.start, Math.min(prev.end, speechEnd(prev)));
         flush();
       }
       if (!line) line = { start: w.start, end: w.end, text: "" };
       line.text += (line.text && !CJK.test(line.text.slice(-1)) && !CJK.test(text[0]) ? " " : "") + text;
       line.end = w.end;
+      count++;
       prev = w;
     };
 
