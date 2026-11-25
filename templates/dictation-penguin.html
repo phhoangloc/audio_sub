@@ -12,7 +12,7 @@ body{min-height:100vh;background:radial-gradient(1200px 700px at 50% 0,#17384f,v
 .btn2{background:transparent;border:1px solid var(--line);border-radius:10px;padding:6px 12px;cursor:pointer;color:var(--ink)}
 #pw{margin-left:auto}
 </style></head><body>
-<title>Cánh Cụt Chép Chính Tả</title>
+<title>Penguin Dictation</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -90,24 +90,24 @@ canvas{width:100%;height:100%}
 </style>
 <div class="app">
   <div class="hud">
-    <div><span>Tầng</span><b id="hh">0</b></div>
+    <div><span>Floor</span><b id="hh">0</b></div>
     <div><span>Sai</span><b id="hf">0</b></div>
-    <div><span>Kỷ lục</span><b id="hb">0</b></div>
+    <div><span>Best</span><b id="hb">0</b></div>
   </div>
   <div class="field">
-    <canvas id="cv" role="img" aria-label="Chú chim cánh cụt nhảy lên các tảng băng trôi"></canvas>
+    <canvas id="cv" role="img" aria-label="A penguin jumping across floating ice floes"></canvas>
     <div class="ov" id="ov"><div class="ovc"><h2 id="ovt"></h2><p id="ovb"></p><button class="btn" id="ovbtn"></button></div></div>
   </div>
   <div class="panel" id="panel" hidden>
     <div class="prow"><span id="pw"></span><small id="playNote"></small></div>
-    <input id="typed" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Gõ câu bạn nghe được">
-    <small class="note"><kbd>Shift</kbd>+<kbd>Space</kbd>: nghe lại</small>
+    <input id="typed" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Type what you hear">
+    <small class="note"><kbd>Shift</kbd>+<kbd>Space</kbd>: replay</small>
   </div>
   <p class="hint" id="jmsg"></p>
-  <p class="keys"><kbd>←</kbd><kbd>→</kbd> đi · <kbd>Space</kbd> hoặc <kbd>↑</kbd> nhảy</p>
-  <div class="pad" id="pad" aria-label="Điều khiển cảm ứng">
-    <div class="grp"><button data-k="l" aria-label="Sang trái">◀</button><button data-k="r" aria-label="Sang phải">▶</button></div>
-    <button class="big" id="bJump">Nhảy</button>
+  <p class="keys"><kbd>←</kbd><kbd>→</kbd> move · <kbd>Space</kbd> or <kbd>↑</kbd> jump</p>
+  <div class="pad" id="pad" aria-label="Touch controls">
+    <div class="grp"><button data-k="l" aria-label="Move left">◀</button><button data-k="r" aria-label="Move right">▶</button></div>
+    <button class="big" id="bJump">Jump</button>
   </div>
 </div>
 
@@ -164,16 +164,16 @@ async function playCurrent() {
   if (isFile) return playLocal(segs[cur]);
   if (!videoId) return;
   const firstSeg = segs[cur];
-  $('playNote').textContent = ' Đang tải...';
+  $('playNote').textContent = ' Loading...';
   try {
     await loadApi();
     const arg = { videoId, startSeconds: Math.max(0, firstSeg.start), endSeconds: firstSeg.end + 0.3 };
     if (!player) {
       player = new YT.Player('yt', { height: '200', width: '200', playerVars: { playsinline: 1 },
         events: { onAutoplayBlocked: () => { blocked = true; }, onReady: () => { player.loadVideoById(arg); $('playNote').textContent = ''; },
-                  onError: () => $('playNote').textContent = ' Video không cho phép phát nhúng.' } });
+                  onError: () => $('playNote').textContent = ' This video does not allow embedding.' } });
     } else { player.loadVideoById(arg); $('playNote').textContent = ''; }
-  } catch { $('playNote').textContent = ' Không tải được trình phát YouTube.'; }
+  } catch { $('playNote').textContent = ' Could not load the YouTube player.'; }
 }
 
 
@@ -183,7 +183,7 @@ function applyJob(j){
   live=j.status==='queued'||j.status==='running';
   segs=j.segments;
   if(j.status==='error')$('jmsg').textContent=j.message;
-  else if(!segs.length)$('jmsg').textContent=live?j.message:'Bài này chưa có câu nào.';
+  else if(!segs.length)$('jmsg').textContent=live?j.message:'This item has no lines yet.';
   if(G){
     ensureRows();
     if(G.status==='ready')$('ovbtn').disabled=!segs.length;
@@ -191,9 +191,9 @@ function applyJob(j){
   }
 }
 async function loadJob(){
-  if(!jobId){$('jmsg').textContent='Chưa chọn bài. Hãy mở một bài trong thư viện ở trang chủ.';return}
+  if(!jobId){$('jmsg').textContent='No item selected. Open one from the library on the home page.';return}
   const r=await fetch(`api/jobs/${encodeURIComponent(jobId)}`);
-  if(!r.ok){$('jmsg').textContent='Không tìm thấy bài này. Hãy mở lại từ thư viện ở trang chủ.';return}
+  if(!r.ok){$('jmsg').textContent='Item not found. Reopen it from the library on the home page.';return}
   applyJob(await r.json());
   if(live){
     const t=setInterval(async()=>{
@@ -333,13 +333,13 @@ function update(dt){
 function jump(){if(G&&G.status==='play')G.p.buf=0.12}
 
 /* ---------- chép chính tả trên từng tầng ---------- */
-const setWrongs=()=>{const w=G.dict?G.dict.wrongs:0;$('pw').textContent=w?`Sai ${w} lần`:''};
+const setWrongs=()=>{const w=G.dict?G.dict.wrongs:0;$('pw').textContent=w?`${w} wrong`:''};
 function startDict(f){  // vừa đáp xuống tầng mới: dừng game, nghe câu và gõ
   G.status='dict';K.l=K.r=false;G.p.walk=false;
   G.dict={f,wrongs:0,waiting:!segs[f.i-1]};cur=f.i-1;
   setWrongs();$('panel').hidden=false;
   const t=$('typed');t.value='';t.className='';
-  if(G.dict.waiting){t.readOnly=true;$('playNote').textContent='Đang nhận dạng câu này...';return}
+  if(G.dict.waiting){t.readOnly=true;$('playNote').textContent='Transcribing this line...';return}
   resumeDict();
 }
 function resumeDict(){
@@ -351,7 +351,7 @@ function dictDone(){  // gõ đúng hết câu: tiếp tục chơi bằng phím 
   if(G.floor>best){best=G.floor;try{localStorage.setItem(BEST_KEY,String(best))}catch(e){}}
   G.dict=null;$('panel').hidden=true;$('typed').blur();if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
   G.p.buf=0;K.l=K.r=false;G.status='play';
-  $('jmsg').textContent='← → đi · Space hoặc ↑ nhảy';
+  $('jmsg').textContent='← → move · Space or ↑ jump';
 }
 $('typed').addEventListener('keydown',e=>{
   const t=$('typed'),v=t.value;
@@ -504,13 +504,13 @@ function showOverlay(title,body,label,fn){
 }
 const again=()=>{newGame();G.status='play'};
 function gameOver(){
-  showOverlay(G.cause==='melt'?'Băng tan rồi!':'Rơi xuống nước lạnh!',`Đã qua <b>${G.floor}/${segs.length}</b> tầng · Kỷ lục: <b>${best}</b><br>Chơi lại từ đầu nhé.`,'Chơi lại từ đầu',again);
+  showOverlay(G.cause==='melt'?'The ice melted!':'Fell into the cold water!',`Cleared <b>${G.floor}/${segs.length}</b> floors · Best: <b>${best}</b><br>Try again from the start.`,'Restart',again);
 }
 function win(){
   G.status='won';G.floor=segs.length;
   if(G.floor>best){best=G.floor;try{localStorage.setItem(BEST_KEY,String(best))}catch(e){}}
   burst(G.p.x,G.p.y-30,30,'#FF9A3C');
-  setTimeout(()=>showOverlay('Qua cầu băng rồi! 🎉',`Bạn đã chép đúng cả <b>${segs.length}</b> câu và đến được đỉnh.`,'Chơi lại',again),700);
+  setTimeout(()=>showOverlay('You crossed the ice bridge! 🎉',`You typed all <b>${segs.length}</b> lines correctly and reached the top.`,'Play again',again),700);
 }
 function syncHud(){
   $('hh').textContent=`${G.floor}/${segs.length}`;
@@ -544,7 +544,7 @@ $('bJump').addEventListener('pointerdown',e=>{e.preventDefault();jump()});
 
 newGame();
 $('hb').textContent=best;
-showOverlay('','','Bắt đầu',()=>{G.status='play'});
+showOverlay('','','Start',()=>{G.status='play'});
 $('ovbtn').disabled=true;
 loadJob();
 requestAnimationFrame(frame);

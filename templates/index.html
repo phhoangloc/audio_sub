@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,6 +27,13 @@
   a.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   button:disabled { opacity:.5; cursor:not-allowed; }
+  .ib { display:inline-flex; align-items:center; justify-content:center; gap:2px; min-width:40px; height:40px; padding:0 10px; vertical-align:middle; transition:transform .12s, border-color .12s, color .12s; }
+  .ib:not(:disabled):hover { transform:translateY(-1px); border-color:var(--accent); color:var(--accent); }
+  .ib.primary:not(:disabled):hover { color:#fff; filter:brightness(1.1); }
+  .ib[hidden] { display:none; }
+  a.btn.ib { margin-bottom:10px; }
+  .ib .sm { width:14px; height:14px; }
+  svg.i { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   progress { width:100%; height:10px; margin-top:16px; }
   #msg { margin:8px 0 0; color:var(--muted); min-height:1.5em; }
   #msg.err { color:var(--err); }
@@ -43,45 +50,61 @@
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-captions" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4m4 0h2M7 11h2m4 0h4"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.41V7.87a.5.5 0 0 0-.75-.4L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></symbol>
+  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+</svg>
 <main>
   <h1>Audio → Subtitle</h1>
-  <p class="sub">Tạo phụ đề (SRT / VTT / TXT) từ link YouTube. Nhận dạng giọng nói chạy trên máy của bạn.</p>
+  <p class="sub">Create subtitles (SRT / VTT / TXT) from a YouTube link or an audio/video file, transcribed by Gemini.</p>
 
   <div class="card">
-    <input id="url" type="url" placeholder="Dán link YouTube, ví dụ https://www.youtube.com/watch?v=..." autocomplete="off" autofocus>
+    <input id="url" type="url" placeholder="Paste a YouTube link, e.g. https://www.youtube.com/watch?v=..." autocomplete="off" autofocus>
     <div class="tabs" style="margin:10px 0 0">
-      <span style="color:var(--muted)">hoặc</span>
-      <button id="pick" type="button">📁 Tải file lên</button>
+      <span style="color:var(--muted)">or</span>
+      <button id="pick" type="button" class="ib" title="Upload an audio/video file" aria-label="Upload file"><svg class="i"><use href="#i-folder"/></svg></button>
       <input id="file" type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.flac,.ogg,.opus,.mp4,.mkv,.webm" hidden>
       <span id="fname" style="color:var(--muted)"></span>
-      <button id="unpick" type="button" hidden title="Bỏ file">✕</button>
+      <button id="unpick" type="button" class="ib" hidden title="Remove file" aria-label="Remove file"><svg class="i"><use href="#i-x"/></svg></button>
     </div>
 
     <div class="row">
-      <label>Ngôn ngữ
+      <label>Language
         <select id="lang">__LANG_OPTIONS__</select>
       </label>
-      <label>Từ (bỏ trống = đầu)
+      <label>From (blank = start)
         <input id="tstart" class="time" placeholder="0:00" autocomplete="off">
       </label>
-      <label>Đến (bỏ trống = hết)
+      <label>To (blank = end)
         <input id="tend" class="time" placeholder="5:00" autocomplete="off">
       </label>
     </div>
 
-    <button id="start" class="primary" disabled>Bắt đầu tạo subtitle</button>
-    <button id="dlaudio" type="button" disabled title="Tải âm thanh m4a của video về máy">⬇ Tải âm thanh</button>
+    <button id="start" class="primary ib" disabled title="Generate subtitles" aria-label="Generate subtitles"><svg class="i"><use href="#i-captions"/></svg></button>
+    <button id="dlaudio" type="button" class="ib" disabled title="Download the video's audio (m4a)" aria-label="Download audio"><svg class="i sm"><use href="#i-download"/></svg><svg class="i"><use href="#i-music"/></svg></button>
+    <button id="dlvideo" type="button" class="ib" disabled title="Download the video (mp4)" aria-label="Download video"><svg class="i sm"><use href="#i-download"/></svg><svg class="i"><use href="#i-video"/></svg></button>
     <progress id="bar" value="0" max="1" hidden></progress>
     <p id="msg"></p>
 
     <div id="out">
-      <a id="dict" class="btn primary" href="#" hidden>✍️ Chép chính tả</a>
+      <a id="dict" class="btn primary ib" href="#" hidden title="Dictation practice" aria-label="Dictation"><svg class="i"><use href="#i-headphones"/></svg></a>
       <div class="tabs" id="tabs">
         __FORMAT_BUTTONS__
         <span class="spacer"></span>
-        <button id="save" title="Lưu vào thư viện để mở lại lần sau">💾 Lưu</button>
-        <button id="copy">Sao chép</button>
-        <button id="dl" class="primary">Tải xuống</button>
+        <button id="save" class="ib" title="Save to the library to reopen later" aria-label="Save"><svg class="i"><use href="#i-save"/></svg></button>
+        <button id="copy" class="ib" title="Copy" aria-label="Copy"><svg class="i"><use href="#i-copy"/></svg></button>
+        <button id="dl" class="primary ib" title="Download subtitle file" aria-label="Download"><svg class="i"><use href="#i-download"/></svg></button>
       </div>
       <textarea id="text" readonly hidden></textarea>
 
@@ -89,7 +112,7 @@
   </div>
 
   <div class="card" id="lib" style="margin-top:20px" hidden>
-    <h2 style="font-size:1.05rem;margin:0 0 8px">Thư viện đã lưu</h2>
+    <h2 style="font-size:1.05rem;margin:0 0 8px">Saved library</h2>
     <div id="libList"></div>
   </div>
 </main>
@@ -98,7 +121,7 @@
 const $ = id => document.getElementById(id);
 let mode = 'subtitle', jobId = null, segs = [], fmt = 'srt', timer = null, live = false;
 
-const syncDl = () => { $('dlaudio').disabled = !$('url').value.trim(); };
+const syncDl = () => { $('dlaudio').disabled = $('dlvideo').disabled = !$('url').value.trim(); };
 const canStart = () => !!($('url').value.trim() || $('file').files[0]);
 $('url').oninput = () => {
   if ($('url').value.trim()) clearFile();
@@ -116,22 +139,26 @@ $('file').onchange = () => {
   syncDl();
 };
 
+const ic = n => `<svg class="i"><use href="#i-${n}"/></svg>`;
+function flash(b, n) { const old = b.innerHTML; b.innerHTML = ic(n); setTimeout(() => b.innerHTML = old, 1500); }
+function iconBtn(n, title, cls = 'ib') { const b = document.createElement('button'); b.className = cls; b.title = title; b.setAttribute('aria-label', title); b.innerHTML = ic(n); return b; }
 function msg(t, err) { $('msg').textContent = t; $('msg').className = err ? 'err' : ''; }
 
 async function startDownload(kind) {
   mode = kind;
-  $('dlaudio').disabled = true; $('start').disabled = true; $('out').style.display = 'none';
-  $('bar').hidden = false; $('bar').value = 0; msg('Đang gửi yêu cầu...');
+  $('dlaudio').disabled = $('dlvideo').disabled = true; $('start').disabled = true; $('out').style.display = 'none';
+  $('bar').hidden = false; $('bar').value = 0; msg('Sending request...');
   try {
     const r = await fetch('api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: $('url').value.trim(), mode: kind }) });
     const raw = await r.text();
     let j = {}; try { j = JSON.parse(raw); } catch {}
-    if (!r.ok || !j.id) throw new Error(j.error || `Lỗi (HTTP ${r.status}).`);
+    if (!r.ok || !j.id) throw new Error(j.error || `Error (HTTP ${r.status}).`);
     jobId = j.id; poll();
   } catch (e) { msg(e.message, true); $('bar').hidden = true; syncDl(); $('start').disabled = !canStart(); }
 }
 $('dlaudio').onclick = () => startDownload('audio');
+$('dlvideo').onclick = () => startDownload('video');
 $('start').onclick = async () => {
   mode = 'subtitle';
   const f = $('file').files[0];
@@ -146,14 +173,14 @@ $('start').onclick = async () => {
     headers = { 'Content-Type': 'application/json' };
   }
   $('start').disabled = true; $('out').style.display = 'none'; live = false;
-  $('bar').hidden = false; $('bar').value = 0; msg('Đang gửi yêu cầu...');
+  $('bar').hidden = false; $('bar').value = 0; msg('Sending request...');
   try {
     const r = await fetch('api/jobs', { method: 'POST', headers, body });
     const raw = await r.text();
     let j = {}; try { j = JSON.parse(raw); } catch {}
     if (!r.ok || !j.id) {
-      const hint = r.status === 413 ? 'File quá lớn so với giới hạn của server (nginx cần tăng client_max_body_size).'
-                 : r.status >= 500 ? `Server gặp lỗi (HTTP ${r.status}). Xem log của server.` : `Lỗi tải lên (HTTP ${r.status}).`;
+      const hint = r.status === 413 ? 'File exceeds the server upload limit (nginx needs a larger client_max_body_size).'
+                 : r.status >= 500 ? `Server error (HTTP ${r.status}). Check the server log.` : `Upload failed (HTTP ${r.status}).`;
       throw new Error(j.error || hint);
     }
     jobId = j.id; poll();
@@ -167,7 +194,7 @@ function poll() {
       $('bar').value = j.progress; msg(j.message, j.status === 'error');
       if (j.status === 'done' && mode !== 'subtitle') {
         clearInterval(timer); $('bar').hidden = true; syncDl(); $('start').disabled = !canStart();
-        msg('Đã tải xong, file đang được lưu về máy.'); location.href = `api/jobs/${jobId}/file`;
+        msg('Download ready, saving the file.'); location.href = `api/jobs/${jobId}/file`;
       }
       else if (j.status === 'done') {
         clearInterval(timer);
@@ -175,7 +202,7 @@ function poll() {
       }
       else if (mode === 'subtitle' && j.segments.length) addLive(j.segments);
       else if (j.status === 'error') { clearInterval(timer); $('start').disabled = !canStart(); syncDl(); $('bar').hidden = true; }
-    } catch (e) { clearInterval(timer); msg('Mất kết nối tới server.', true); $('start').disabled = false; }
+    } catch (e) { clearInterval(timer); msg('Lost connection to the server.', true); $('start').disabled = false; }
   }, 800);
 }
 
@@ -203,27 +230,27 @@ async function loadLib() {
   $('libList').replaceChildren(...items.map(it => {
     const row = document.createElement('div'); row.className = 'item';
     const nm = Object.assign(document.createElement('span'), { className: 'nm', textContent: it.name, title: it.name });
-    const info = Object.assign(document.createElement('small'), { textContent: `${it.count} câu` });
-    const open = Object.assign(document.createElement('button'), { textContent: 'Mở & chép chính tả', className: 'primary' });
-    const ren = Object.assign(document.createElement('button'), { textContent: '✏', title: 'Đổi tên' });
-    const del = Object.assign(document.createElement('button'), { textContent: '🗑', title: 'Xoá khỏi thư viện' });
+    const info = Object.assign(document.createElement('small'), { textContent: `${it.count} lines` });
+    const open = iconBtn('headphones', 'Open & dictate', 'primary ib');
+    const ren = iconBtn('pencil', 'Rename');
+    const del = iconBtn('trash', 'Remove from library');
     ren.onclick = async () => {
-      const name = prompt('Tên mới:', it.name);
+      const name = prompt('New name:', it.name);
       if (name === null || !name.trim() || name.trim() === it.name) return;
       const r = await fetch(`api/library/${it.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
       });
-      if (!r.ok) return msg((await r.json()).error || 'Không đổi được tên.', true);
+      if (!r.ok) return msg((await r.json()).error || 'Could not rename.', true);
       loadLib();
     };
     open.onclick = async () => {
       const r = await fetch(`api/library/${it.id}/load`, { method: 'POST' });
       const j = await r.json();
-      if (!r.ok) return msg(j.error || 'Không mở được.', true);
+      if (!r.ok) return msg(j.error || 'Could not open.', true);
       location.href = `dictation?id=${j.id}`;
     };
     del.onclick = async () => {
-      if (!confirm(`Xoá "${it.name}" khỏi thư viện?`)) return;
+      if (!confirm(`Remove "${it.name}" from the library?`)) return;
       await fetch(`api/library/${it.id}`, { method: 'DELETE' }); loadLib();
     };
     row.append(nm, info, open, ren, del); return row;
@@ -231,8 +258,8 @@ async function loadLib() {
 }
 $('save').onclick = async () => {
   const r = await fetch(`api/jobs/${jobId}/save`, { method: 'POST' });
-  $('save').textContent = r.ok ? '✓ Đã lưu' : 'Lỗi khi lưu';
-  setTimeout(() => $('save').textContent = '💾 Lưu', 1500);
+  flash($('save'), r.ok ? 'check' : 'alert');
+  if (!r.ok) msg('Save failed.', true);
   if (r.ok) loadLib();
 };
 loadLib();
@@ -244,9 +271,9 @@ $('tabs').addEventListener('click', e => {
 });
 $('dl').onclick = () => { location.href = `api/jobs/${jobId}/result?fmt=${fmt}&download=1`; };
 $('copy').onclick = async () => {
-  try { await navigator.clipboard.writeText($('text').value); $('copy').textContent = 'Đã chép'; }
+  try { await navigator.clipboard.writeText($('text').value); }
   catch { $('text').select(); document.execCommand('copy'); }
-  setTimeout(() => $('copy').textContent = 'Sao chép', 1500);
+  flash($('copy'), 'check');
 };
 </script>
 </body>

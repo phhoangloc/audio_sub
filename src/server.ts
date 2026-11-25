@@ -1,5 +1,5 @@
 /** Web UI cho audio_sub: nhập link YouTube / tải file lên -> subtitle.
- *  Chạy: npm start  ->  http://127.0.0.1:4000 */
+ *  Chạy: npm start  ->  http://127.0.0.1:5000/type/ */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -8,7 +8,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import multer from "multer";
 import { FORMATS, LANGS, ROOT, type Format, type Segment } from "./config.js";
 import { formatSegments, parseTime } from "./format.js";
-import { transcribe } from "./whisper.js";
+import { transcribe } from "./gemini.js";
 import { downloadMedia, isYoutubeUrl } from "./youtube.js";
 
 interface Job {
@@ -44,7 +44,10 @@ const newId = () => crypto.randomBytes(16).toString("hex");
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const isFormat = (f: unknown): f is Format => FORMATS.includes(f as Format);
 
-const app = express();
+// Toàn bộ route nằm dưới BASE_PATH (.env, mặc định /type); đặt BASE_PATH=/ để chạy ở gốc.
+const BASE_PATH = "/" + (process.env.BASE_PATH ?? "/type").replace(/^\/+|\/+$/g, "");
+const server = express();
+const app = express.Router();
 app.use(express.json());
 const upload = multer({ dest: path.join(WORK_DIR, "incoming"), limits: { fileSize: UPLOAD_LIMIT } });
 
@@ -81,7 +84,7 @@ async function subtitleWorker(id: string, lang: string | null, upl: string | nul
       if (file) {
         Object.assign(job, { status: "running", progress: 0 });
       } else {
-        Object.assign(job, { status: "running", message: "Đang tải âm thanh từ YouTube..." });
+        Object.assign(job, { status: "running", message: "Downloading audio from YouTube..." });
         const [p, title] = await downloadMedia(job.url!, work, "audio", (progress, message) => Object.assign(job, { progress, message }));
         file = p;
         Object.assign(job, { name: title, progress: 0 });
@@ -93,7 +96,7 @@ async function subtitleWorker(id: string, lang: string | null, upl: string | nul
       }, start, end);
     });
     job.status = "done";
-    job.message = `Xong — ${job.segments.length} dòng subtitle.`;
+    job.message = `Done — ${job.segments.length} subtitle lines.`;
   } catch (e) {
     job.status = "error";
     job.message = errMsg(e);
@@ -107,9 +110,9 @@ async function downloadWorker(id: string, url: string, kind: "audio" | "video") 
   const work = path.join(WORK_DIR, id);
   fs.mkdirSync(work, { recursive: true });
   try {
-    Object.assign(job, { status: "running", message: "Đang tải từ YouTube..." });
+    Object.assign(job, { status: "running", message: "Downloading from YouTube..." });
     const [file, name] = await downloadMedia(url, work, kind, (progress, message) => Object.assign(job, { progress, message }));
-    Object.assign(job, { file, name, progress: 1, status: "done", message: "Đã tải xong." });
+    Object.assign(job, { file, name, progress: 1, status: "done", message: "Download complete." });
   } catch (e) {
     Object.assign(job, { status: "error", message: errMsg(e) });
     fs.rmSync(work, { recursive: true, force: true });
@@ -121,26 +124,26 @@ app.post("/api/jobs", upload.single("file"), (req, res) => {
   const data: Record<string, unknown> = upl ? req.body : req.body ?? {};
   const url = String(data.url ?? "").trim();
   const mode = String(data.mode ?? "subtitle");
-  const langName = String(data.lang ?? "Tự động");
+  const langName = String(data.lang ?? "Auto");
   const bad = (error: string) => {
     if (upl) fs.rmSync(upl.path, { force: true });
     return res.status(400).json({ error });
   };
-  if (!upl && !isYoutubeUrl(url)) return bad("Link không hợp lệ. Hãy dán link YouTube (youtube.com hoặc youtu.be).");
-  if (!(langName in LANGS)) return bad("Tham số không hợp lệ.");
+  if (!upl && !isYoutubeUrl(url)) return bad("Invalid link. Paste a YouTube link (youtube.com or youtu.be).");
+  if (!(langName in LANGS)) return bad("Invalid parameter.");
   let start: number | null, end: number | null;
   try {
     start = parseTime(data.start);
     end = parseTime(data.end);
   } catch {
-    return bad("Thời gian không hợp lệ. Dùng dạng 90, 1:30 hoặc 1:02:03.");
+    return bad("Invalid time. Use a format like 90, 1:30 or 1:02:03.");
   }
-  if (end !== null && end <= (start ?? 0)) return bad("Thời điểm kết thúc phải sau thời điểm bắt đầu.");
+  if (end !== null && end <= (start ?? 0)) return bad("The end time must be after the start time.");
 
   const id = newId();
   if (mode === "audio" || mode === "video") {
-    if (!isYoutubeUrl(url)) return bad("Link không hợp lệ.");
-    jobs.set(id, { status: "queued", progress: 0, message: "Đang chờ...", segments: [], name: "media", file: null });
+    if (!isYoutubeUrl(url)) return bad("Invalid link.");
+    jobs.set(id, { status: "queued", progress: 0, message: "Waiting...", segments: [], name: "media", file: null });
     void downloadWorker(id, url, mode);
     return res.json({ id });
   }
@@ -155,14 +158,14 @@ app.post("/api/jobs", upload.single("file"), (req, res) => {
     uploadPath = path.join(work, "upload" + (path.extname(original) || ".bin"));
     fs.renameSync(upl.path, uploadPath);
   }
-  jobs.set(id, { status: "queued", progress: 0, message: "Đang chờ...", segments: [], name, audio: uploadPath, url });
+  jobs.set(id, { status: "queued", progress: 0, message: "Waiting...", segments: [], name, audio: uploadPath, url });
   void subtitleWorker(id, LANGS[langName], uploadPath, start ?? 0, end);
   res.json({ id });
 });
 
 app.get("/api/jobs/:id", (req, res) => {
   const job = jobs.get(req.params.id);
-  if (!job) return res.status(404).json({ error: "Không tìm thấy." });
+  if (!job) return res.status(404).json({ error: "Not found." });
   res.json({
     status: job.status, progress: job.progress, message: job.message, segments: job.segments,
     name: job.name, url: job.url ?? "", has_audio: Boolean(job.audio),
@@ -174,7 +177,7 @@ app.put("/api/jobs/:id/segments/:idx", (req, res) => {
   const idx = Number(req.params.idx);
   const text = String(req.body?.text ?? "").trim();
   if (!job || !["running", "done"].includes(job.status) || !Number.isInteger(idx) || idx < 0 || idx >= job.segments.length || !text) {
-    return res.status(400).json({ error: "Không sửa được." });
+    return res.status(400).json({ error: "Could not edit." });
   }
   job.segments[idx].text = text;
   const metaPath = path.join(LIBRARY_DIR, req.params.id, "meta.json");
@@ -188,20 +191,20 @@ app.put("/api/jobs/:id/segments/:idx", (req, res) => {
 
 app.get("/api/jobs/:id/file", (req, res) => {
   const job = jobs.get(req.params.id);
-  if (!job || job.status !== "done" || !job.file) return res.status(404).json({ error: "Chưa có file." });
+  if (!job || job.status !== "done" || !job.file) return res.status(404).json({ error: "File not ready." });
   res.download(job.file, `${job.name}${path.extname(job.file)}`);
 });
 
 app.get("/api/jobs/:id/audio", (req, res) => {
   const job = jobs.get(req.params.id);
-  if (!job?.audio) return res.status(404).json({ error: "Không có file âm thanh." });
+  if (!job?.audio) return res.status(404).json({ error: "No audio file." });
   res.sendFile(path.resolve(job.audio)); // hỗ trợ Range để tua
 });
 
 app.get("/api/jobs/:id/result", (req, res) => {
   const job = jobs.get(req.params.id);
   const fmt = String(req.query.fmt ?? "srt");
-  if (!job || job.status !== "done" || !isFormat(fmt)) return res.status(404).json({ error: "Chưa có kết quả." });
+  if (!job || job.status !== "done" || !isFormat(fmt)) return res.status(404).json({ error: "Result not ready." });
   if (req.query.download) {
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(job.name)}.${fmt}`);
   }
@@ -218,7 +221,7 @@ const readMeta = (d: string): Meta => JSON.parse(fs.readFileSync(path.join(d, "m
 app.post("/api/jobs/:id/save", (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job || job.status !== "done" || !job.segments.length || !/^[A-Za-z0-9]+$/.test(req.params.id)) {
-    return res.status(400).json({ error: "Chưa có kết quả để lưu." });
+    return res.status(400).json({ error: "No result to save yet." });
   }
   const d = path.join(LIBRARY_DIR, req.params.id);
   fs.mkdirSync(d, { recursive: true });
@@ -245,10 +248,10 @@ app.get("/api/library", (_req, res) => {
 
 app.post("/api/library/:id/load", (req, res) => {
   const d = libDir(req.params.id);
-  if (!d) return res.status(404).json({ error: "Không tìm thấy." });
+  if (!d) return res.status(404).json({ error: "Not found." });
   const m = readMeta(d);
   jobs.set(req.params.id, {
-    status: "done", progress: 1, message: `Đã mở — ${m.segments.length} dòng subtitle.`,
+    status: "done", progress: 1, message: `Opened — ${m.segments.length} subtitle lines.`,
     segments: m.segments, name: m.name, url: m.url, audio: m.audio ? path.join(d, m.audio) : null,
   });
   res.json({ id: req.params.id, url: m.url, name: m.name });
@@ -256,9 +259,9 @@ app.post("/api/library/:id/load", (req, res) => {
 
 app.patch("/api/library/:id", (req, res) => {
   const d = libDir(req.params.id);
-  if (!d) return res.status(404).json({ error: "Không tìm thấy." });
+  if (!d) return res.status(404).json({ error: "Not found." });
   const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
-  if (!name) return res.status(400).json({ error: "Tên không được để trống." });
+  if (!name) return res.status(400).json({ error: "Name cannot be empty." });
   const m = readMeta(d);
   m.name = name;
   fs.writeFileSync(path.join(d, "meta.json"), JSON.stringify(m));
@@ -269,17 +272,26 @@ app.patch("/api/library/:id", (req, res) => {
 
 app.delete("/api/library/:id", (req, res) => {
   const d = libDir(req.params.id);
-  if (!d) return res.status(404).json({ error: "Không tìm thấy." });
+  if (!d) return res.status(404).json({ error: "Not found." });
   fs.rmSync(d, { recursive: true, force: true });
   res.json({ ok: true });
 });
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
-    return res.status(413).json({ error: "File quá lớn (tối đa 2 GB)." });
+    return res.status(413).json({ error: "File too large (max 2 GB)." });
   }
   res.status(500).json({ error: errMsg(err) });
 });
 
-const PORT = Number(process.env.PORT) || 4000;
-app.listen(PORT, "127.0.0.1", () => console.log(`http://127.0.0.1:${PORT}`));
+if (BASE_PATH !== "/") {
+  // Link tương đối (api/jobs...) chỉ đúng khi URL kết thúc bằng "/".
+  server.get(BASE_PATH, (req, res, next) => {
+    if (req.path.endsWith("/")) return next();
+    res.redirect(301, `${BASE_PATH}/${req.url.slice(req.path.length)}`);
+  });
+}
+server.use(BASE_PATH, app);
+
+const PORT = Number(process.env.PORT) || 5000;
+server.listen(PORT, "127.0.0.1", () => console.log(`http://127.0.0.1:${PORT}${BASE_PATH === "/" ? "" : BASE_PATH + "/"}`));

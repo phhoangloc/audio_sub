@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chép chính tả</title>
+<title>Dictation</title>
 <style>
   :root { color-scheme:dark; --bg:#0d0f13; --card:rgba(10,11,15,.82); --fg:#e8eaee; --muted:#a4adbb; --line:rgba(255,255,255,.16); --accent:#6b8cff; --err:#ff6b5e; }
   * { box-sizing: border-box; }
@@ -32,18 +32,15 @@
   .spacer { flex:1; }
   #check { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
   #check h2 { font-size:1.05rem; margin:0 0 8px; }
-  #first { position:fixed; left:50%; bottom:8vh; transform:translateX(-50%); width:min(960px, 92vw); text-align:left; white-space:nowrap; overflow:hidden; font-size:clamp(1.3rem, 2.6vw, 2rem); line-height:1.5; text-shadow:0 2px 8px rgba(0,0,0,.9); background:none; border:0; padding:0; margin:0; }
+  #first { position:fixed; left:50%; bottom:8vh; transform:translateX(-50%); width:min(960px, 92vw); text-align:center; white-space:normal; overflow-wrap:anywhere; font-size:clamp(1.3rem, 2.6vw, 2rem); line-height:1.5; text-shadow:0 2px 8px rgba(0,0,0,.9); background:none; border:0; padding:0; margin:0; }
   #first .y { color:#ffd84d; }
   #first .bad { color:var(--err); }
   @keyframes blink { 50% { opacity:0; } }
-  #firstText { display:inline-block; transition:transform .15s ease-out; }
+  #firstText { display:block; }
   /* ô nhập nhỏ dưới dòng sub (bật bằng nút ⌨): thấy được chữ đang gõ, khung gợi ý của IME hiện ngay bên dưới */
   #typed.vis { opacity:1 !important; pointer-events:auto !important; left:50% !important; bottom:2.5vh !important; transform:translateX(-50%); width:min(420px, 80vw) !important; height:auto !important; padding:6px 10px !important; text-align:center; color:var(--fg); background:rgba(20,22,28,.9); border:1px solid var(--line) !important; border-radius:8px; outline:none; }
   #typed.vis:focus { border-color:var(--accent) !important; }
-  #first .sep { white-space:pre; color:var(--muted); }
-  #first .pv { color:#ffd84d; white-space:pre; }
-  #first .nx { opacity:.4; white-space:pre; }
-  #first .sp { white-space:pre; }
+  #first .sp { white-space:pre-wrap; }
   #first .cw.sp { text-decoration-color:var(--err); }
   #first .cw { text-decoration:underline; text-decoration-color:#ffd84d; text-decoration-thickness:3px; text-underline-offset:6px; }
   #first small { color:var(--muted); display:block; }
@@ -73,19 +70,20 @@
 <body>
 <div id="bg"></div>
 <main>
-  <p class="sub"><a href="./" id="back" title="Về trang chủ" aria-label="Về trang chủ">←</a> <span id="title"></span></p>
+  <p class="sub"><a href="./" id="back" title="Back to home" aria-label="Back to home">←</a> <span id="title"></span></p>
   <div class="card">
     <p id="msg" style="margin:0"></p>
     <audio id="aud" preload="auto" hidden></audio>
   <div id="check" style="margin:0;padding:0;border:0">
     <div style="display:flex;align-items:center;gap:8px;margin:0 0 8px">
       <span id="pos" style="color:var(--muted)"></span>
-      <button id="pickSeg" type="button" title="Chọn câu" aria-label="Chọn câu" style="padding:2px 8px">📜</button>
-      <button id="reveal" type="button" title="Hiện / ẩn sub" aria-label="Hiện / ẩn sub" style="padding:2px 8px">👁</button>
-      <button id="showInput" type="button" title="Hiện / ẩn ô nhập" aria-label="Hiện / ẩn ô nhập" style="padding:2px 8px">⌨</button>
+      <button id="pickSeg" type="button" title="Pick a line" aria-label="Pick a line" style="padding:2px 8px">📜</button>
+      <button id="reveal" type="button" title="Show / hide subtitle" aria-label="Show / hide subtitle" style="padding:2px 8px">👁</button>
+      <button id="speed" type="button" title="Playback speed" aria-label="Playback speed" style="padding:2px 8px">1x</button>
+      <button id="showInput" type="button" title="Show / hide input box" aria-label="Show / hide input box" style="padding:2px 8px">⌨</button>
     </div>
     <div id="segList" hidden></div>
-    <input id="typed" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Gõ câu bạn nghe được" style="position:fixed;left:0;bottom:0;width:1px;height:1.5em;font-size:16px;opacity:0;border:0;padding:0;pointer-events:none">
+    <input id="typed" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Type what you hear" style="position:fixed;left:0;bottom:0;width:1px;height:1.5em;font-size:16px;opacity:0;border:0;padding:0;pointer-events:none">
     <div id="first"><span id="firstText"></span></div>
     <div class="tabs"><small id="playNote" style="color:var(--muted)"></small></div>
     <div id="ytbox" style="position:absolute;left:-9999px;width:200px;height:200px"><div id="yt"></div></div>
@@ -119,30 +117,41 @@ let blocked = false;
 ['keydown', 'pointerdown'].forEach(ev => document.addEventListener(ev, () => {
   if (blocked) { blocked = false; playCurrent(); }
 }, true));
+// Tốc độ đọc: bấm nút để đổi vòng 1x → 0.75x → 0.5x (các mức YouTube cũng hỗ trợ).
+const SPEEDS = [1, 0.75, 0.5];
+let rate = SPEEDS[0];
+try { rate = SPEEDS.includes(+localStorage.dictSpeed) ? +localStorage.dictSpeed : 1; } catch {}
+function applyRate() {
+  $('speed').textContent = rate + 'x';
+  $('aud').playbackRate = rate;
+  if (player && player.setPlaybackRate) player.setPlaybackRate(rate);
+}
 function playLocal(g) {
   const a = $('aud');
+  a.playbackRate = rate;
   const src = `api/jobs/${jobId}/audio`;
   if (!a.src.endsWith(src)) a.src = src;
   const stopAt = g.end + 0.3;
-  a.ontimeupdate = () => { if (a.currentTime >= stopAt) { a.pause(); a.ontimeupdate = null; } };
+  // đang tua (seeking) thì currentTime còn là vị trí cũ, đừng dừng nhầm
+  a.ontimeupdate = () => { if (!a.seeking && a.currentTime >= stopAt) { a.pause(); a.ontimeupdate = null; } };
   const go = () => { a.currentTime = Math.max(0, g.start); a.play().catch(() => { blocked = true; }); };
   a.readyState >= 1 ? go() : a.addEventListener('loadedmetadata', go, { once: true });
 }
-async function playCurrent() {
-  if (!segs[cur]) return;
-  if (isFile) return playLocal(segs[cur]);
+async function playCurrent(seg = segs[cur]) {
+  if (!seg) return;
+  if (isFile) return playLocal(seg);
   if (!videoId) return;
-  const firstSeg = segs[cur];
-  $('playNote').textContent = ' Đang tải...';
+  const firstSeg = seg;
+  $('playNote').textContent = ' Loading...';
   try {
     await loadApi();
     const arg = { videoId, startSeconds: Math.max(0, firstSeg.start), endSeconds: firstSeg.end + 0.3 };
     if (!player) {
       player = new YT.Player('yt', { height: '200', width: '200', playerVars: { playsinline: 1 },
-        events: { onAutoplayBlocked: () => { blocked = true; }, onReady: () => { player.loadVideoById(arg); $('playNote').textContent = ''; },
-                  onError: () => $('playNote').textContent = ' Video không cho phép phát nhúng.' } });
-    } else { player.loadVideoById(arg); $('playNote').textContent = ''; }
-  } catch { $('playNote').textContent = ' Không tải được trình phát YouTube.'; }
+        events: { onAutoplayBlocked: () => { blocked = true; }, onReady: () => { player.loadVideoById(arg); player.setPlaybackRate(rate); $('playNote').textContent = ''; },
+                  onError: () => $('playNote').textContent = ' This video does not allow embedding.' } });
+    } else { player.loadVideoById(arg); player.setPlaybackRate(rate); $('playNote').textContent = ''; }
+  } catch { $('playNote').textContent = ' Could not load the YouTube player.'; }
 }
 
 function init(j) {
@@ -162,22 +171,22 @@ function update(j) {
   segs = j.segments;
   $('check').style.display = segs.length ? 'block' : 'none';
   if (first) { started = true; cur = 0; showSeg(); }
-  else if (started) $('pos').textContent = `${cur + 1}/${segs.length}` + (live ? ' (đang nhận dạng...)' : '');
+  else if (started) $('pos').textContent = `${cur + 1}/${segs.length}` + (live ? ' (transcribing...)' : '');
   if (j.status === 'error') msg(j.message, true);
   else if (live) msg(segs.length ? '' : j.message);
-  else msg(segs.length ? '' : 'Bài này chưa có câu nào.');
+  else msg(segs.length ? '' : 'This item has no lines yet.');
 }
 function msg(t, err) { $('msg').textContent = t; $('msg').style.display = t ? 'block' : 'none'; $('msg').className = err ? 'err' : ''; }
 async function load() {
   $('check').style.display = 'none';
-  if (!jobId) return msg('Chưa chọn bài. Hãy tạo subtitle hoặc mở một bài trong thư viện ở trang chủ rồi bấm "Chép chính tả".', true);
+  if (!jobId) return msg('No item selected. Generate subtitles or open one from the library on the home page, then click "Dictation".', true);
   const r = await fetch(`api/jobs/${encodeURIComponent(jobId)}`);
-  if (!r.ok) return msg('Không tìm thấy bài này (có thể server đã khởi động lại). Hãy mở lại từ thư viện ở trang chủ.', true);
+  if (!r.ok) return msg('Item not found (the server may have restarted). Reopen it from the library on the home page.', true);
   const j = await r.json(); init(j); update(j);
   if (live) {
     const t = setInterval(async () => {
       try { update(await (await fetch(`api/jobs/${encodeURIComponent(jobId)}`)).json()); if (!live) clearInterval(t); }
-      catch { clearInterval(t); msg('Mất kết nối tới server.', true); }
+      catch { clearInterval(t); msg('Lost connection to the server.', true); }
     }, 1000);
   }
 }
@@ -231,32 +240,15 @@ function renderSub() {
     w.className = 'w'; w.append(wrap);
     return w;
   });
-  const prevSeg = segs[cur - 1];  // câu trước đã đánh: hiện nguyên chữ (màu vàng), nối liền trước câu hiện tại
-  if (prevSeg) {
-    const pv = document.createElement('span');
-    pv.className = 'pv'; pv.textContent = prevSeg.text;
-    const sep0 = document.createElement('span');
-    sep0.className = 'sep'; sep0.textContent = ' ';
-    out.unshift(pv, sep0);
-  }
-  const next = segs[cur + 1];  // câu kế tiếp nối liền sau câu hiện tại, không có dấu / (vẫn che bằng *)
-  if (next) {
-    const sep = document.createElement('span');
-    sep.className = 'sep'; sep.textContent = ' ';
-    const nx = document.createElement('span');
-    nx.className = 'nx';
-    nx.textContent = next.text.split(/(\s+)/).map(tok => {
-      const chars = Array.from(tok);
-      return /^\s+$/.test(tok) ? ' ' : chars.map((c, i) => isSlot(chars, i) ? '*' : c).join('');
-    }).join('');
-    out.push(sep, nx);
-  }
   $('firstText').replaceChildren(...out);
-  const ft = $('firstText');
-  const at = curWord || lastSp;  // gõ xong hết thì giữ ký tự cuối ở giữa
-  ft.style.transform = at ? `translateX(${$('first').clientWidth / 2 - (at.offsetLeft + at.offsetWidth / 2)}px)` : '';
 }
 window.addEventListener('resize', () => renderSub());
+applyRate();
+$('speed').onclick = () => {
+  rate = SPEEDS[(SPEEDS.indexOf(rate) + 1) % SPEEDS.length];
+  try { localStorage.dictSpeed = rate; } catch {}
+  applyRate(); playCurrent(); $('typed').focus();
+};
 $('showInput').onclick = () => { $('typed').classList.toggle('vis'); $('typed').focus(); };
 $('reveal').onclick = () => { revealed = !revealed; renderSub(); $('typed').focus(); };
 $('typed').oninput = e => {
@@ -285,7 +277,7 @@ function renderSegList() {
   box.append(...segs.map((g, i) => {
     const row = Object.assign(document.createElement('div'), { className: 'sg' + (i === cur ? ' on' : '') });
     const txt = Object.assign(document.createElement('span'), { textContent: g.text, className: 'tx' });
-    const edit = Object.assign(document.createElement('button'), { type: 'button', textContent: '✏️', title: 'Sửa câu này', className: 'ed' });
+    const edit = Object.assign(document.createElement('button'), { type: 'button', textContent: '✏️', title: 'Edit this line', className: 'ed' });
     row.append(Object.assign(document.createElement('small'), { textContent: `${i + 1}.` }), txt, edit);
     row.onclick = () => { cur = i; showSeg(); $('segList').hidden = true; $('check').scrollIntoView({ behavior: 'smooth' }); };
     edit.onclick = e => {
@@ -297,7 +289,7 @@ function renderSegList() {
         const t = inp.value.trim();
         if (save && t && t !== g.text) {
           const r = await fetch(`api/jobs/${encodeURIComponent(jobId)}/segments/${i}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) });
-          if (r.ok) { g.text = t; if (i === cur) showSeg(); } else hint('Không lưu được chỗ sửa.');
+          if (r.ok) { g.text = t; if (i === cur) showSeg(); } else hint('Could not save the edit.');
         }
         txt.textContent = g.text; inp.replaceWith(txt); edit.hidden = false;
       };
@@ -327,24 +319,23 @@ const typedWords = () => committed.trim().split(/\s+/).filter(Boolean).map(t => 
 let hintTimer = null;
 function hint(t) { $('playNote').textContent = t; clearTimeout(hintTimer); hintTimer = setTimeout(() => $('playNote').textContent = '', 4000); }
 let advanceTimer = null;
-// Tự kiểm tra mỗi lần gõ (không dùng phím tắt): gõ đúng cả câu thì qua câu sau, sai hoặc chưa đủ thì giữ nguyên để sửa tiếp.
+// Kiểm tra cuối câu khi bấm Space sau từ cuối: đúng cả câu thì hiện hết sub, 1 giây sau tự qua câu sau.
 function autoCheck() {
-  if (composing || !segs[cur] || $('typed').readOnly) return;
+  if (composing || !segs[cur] || $('typed').readOnly || !/\s$/.test(committed)) return;
   const want = answerWords(), got = typedWords();
   if (want.length && want.length === got.length && want.every((w, i) => w === got[i])) {
-    revealed = true; renderSub();  // đúng: hiện hết sub, đợi 1 giây rồi mới qua câu mới
+    revealed = true; renderSub();  // đúng: hiện hết sub, đợi 1 giây rồi qua câu sau
     if (cur + 1 < segs.length) {
       $('typed').readOnly = true;
       advanceTimer = setTimeout(() => { cur++; showSeg(); }, 1000);
     }
-    else if (live) hint('Đúng! Đang nhận dạng câu tiếp theo, đợi một chút...');
-    else { msg('🎉 Đã hoàn thành tất cả các câu!'); }
   }
 }
-// Ctrl+Space: nghe lại câu hiện tại.
+// Shift+Space: nghe lại câu hiện tại (preventDefault để không chèn dấu cách vào text đang nhập). Ctrl+Enter: qua câu sau.
 document.addEventListener('keydown', e => {
-  if (e.isComposing || !e.ctrlKey || !segs.length || $('check').style.display === 'none') return;
-  if (e.code === 'Space') { e.preventDefault(); playCurrent(); }
+  if (e.isComposing || !segs.length || $('check').style.display === 'none') return;
+  if (e.shiftKey && e.code === 'Space') { e.preventDefault(); playCurrent(); }
+  else if (e.ctrlKey && e.key === 'Enter' && cur + 1 < segs.length) { e.preventDefault(); cur++; showSeg(); }
 });
 load();
 $('typed').focus();

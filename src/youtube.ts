@@ -36,14 +36,14 @@ function run(args: string[], onLine: (l: string) => void, i = 0): Promise<void> 
     p.on("error", (e: NodeJS.ErrnoException) => {
       missing = e.code === "ENOENT";
       if (missing && i + 1 < LAUNCHERS.length) run(args, onLine, i + 1).then(resolve, reject);
-      else reject(e.code === "ENOENT" ? new Error("Không tìm thấy yt-dlp (cài bằng: pip install yt-dlp).") : e);
+      else reject(e.code === "ENOENT" ? new Error("yt-dlp not found (install with: pip install yt-dlp).") : e);
     });
     p.on("close", (code) => {
       if (missing) return; // không có lệnh này: đã chuyển sang launcher kế (hoặc đã báo lỗi)
       if (code === 0) return resolve();
       // Crash khi khởi động (vd. 0xC0000142 thiếu DLL, không in gì): thử launcher kế tiếp.
       if (!started && !err.trim() && i + 1 < LAUNCHERS.length) return run(args, onLine, i + 1).then(resolve, reject);
-      reject(new Error(err.trim().split("\n").pop() || `yt-dlp thoát với mã ${code}`));
+      reject(new Error(err.trim().split("\n").pop() || `yt-dlp exited with code ${code}`));
     });
   });
 }
@@ -52,7 +52,7 @@ function run(args: string[], onLine: (l: string) => void, i = 0): Promise<void> 
 export async function downloadMedia(
   url: string, outDir: string, kind: "audio" | "video", onProgress: (frac: number, msg: string) => void,
 ): Promise<[string, string]> {
-  const label = kind === "video" ? "video" : "âm thanh";
+  const label = kind === "video" ? "video" : "audio";
   const args = [
     "-f", kind === "video" ? "best[ext=mp4]/best" : "bestaudio[ext=m4a]/bestaudio",
     "-o", path.join(outDir, `${kind}.%(ext)s`),
@@ -76,11 +76,11 @@ export async function downloadMedia(
       const total = Number(m[2]) || Number(m[3]);
       if (total) {
         const frac = Math.min(Number(m[1]) / total, 1);
-        onProgress(frac, `Đang tải ${label} từ YouTube... ${Math.round(frac * 100)}%`);
+        onProgress(frac, `Downloading ${label} from YouTube... ${Math.round(frac * 100)}%`);
       }
     }
   });
   const files = fs.readdirSync(outDir).filter((f) => f.startsWith(`${kind}.`) && !/\.(part|ytdl)$/.test(f));
-  if (!files.length) throw new Error(`Không tải được ${label} từ link này.`);
+  if (!files.length) throw new Error(`Could not download the ${label} from this link.`);
   return [path.join(outDir, files[0]), title || "subtitle"];
 }
