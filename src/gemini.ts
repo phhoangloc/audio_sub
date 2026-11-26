@@ -34,6 +34,22 @@ function decode(file: string, out: string, start: number, dur: number | null): P
   });
 }
 
+/** Cắt [start, end) của file thành mp3 chất lượng nghe được (128 kbps) — dùng để lưu và phát lại từng câu. */
+export function clipAudio(file: string, out: string, start: number, end: number | null): Promise<void> {
+  if (!ffmpegPath) return Promise.reject(new Error("ffmpeg not found."));
+  const args = ["-hide_banner", "-loglevel", "error", "-y"];
+  if (start) args.push("-ss", String(start));
+  if (end !== null) args.push("-t", String(end - start));
+  args.push("-i", file, "-vn", "-c:a", "libmp3lame", "-b:a", "128k", out);
+  return new Promise((resolve, reject) => {
+    const p = spawn(ffmpegPath, args);
+    let err = "";
+    p.stderr.on("data", (d) => (err += d));
+    p.on("error", reject);
+    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg error: ${err.trim().slice(-300)}`))));
+  });
+}
+
 /** Độ dài (giây) của file, đọc từ dòng "Duration" ffmpeg in ra. */
 function duration(file: string): Promise<number> {
   return new Promise((resolve, reject) => {

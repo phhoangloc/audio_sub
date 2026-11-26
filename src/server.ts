@@ -8,7 +8,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import multer from "multer";
 import { FORMATS, LANGS, ROOT, type Format, type Segment } from "./config.js";
 import { formatSegments, parseTime } from "./format.js";
-import { transcribe } from "./gemini.js";
+import { clipAudio, transcribe } from "./gemini.js";
 import { downloadMedia, isYoutubeUrl } from "./youtube.js";
 
 interface Job {
@@ -66,14 +66,6 @@ app.get("/", (_req, res) => {
   }));
 });
 
-app.get("/dictation", (_req, res) => {
-  res.type("html").send(render("dictation.html"));
-});
-
-app.get("/dictation-penguin", (_req, res) => {
-  res.type("html").send(render("dictation-penguin.html"));
-});
-
 async function subtitleWorker(id: string, lang: string | null, upl: string | null, start: number, end: number | null) {
   const job = jobs.get(id)!;
   const work = path.join(WORK_DIR, id);
@@ -87,8 +79,18 @@ async function subtitleWorker(id: string, lang: string | null, upl: string | nul
         Object.assign(job, { status: "running", message: "Downloading audio from YouTube..." });
         const [p, title] = await downloadMedia(job.url!, work, "audio", (progress, message) => Object.assign(job, { progress, message }));
         file = p;
-        Object.assign(job, { name: title, progress: 0 });
+        Object.assign(job, { name: title, progress: 0, audio: file });
       }
+      // Có chọn khoảng Start–End: chỉ giữ đúng đoạn đó (file nhỏ), bỏ file gốc.
+      // Thời gian các câu sau đó tính từ đầu đoạn đã cắt.
+      if (start > 0 || end !== null) {
+        job.message = "Cutting the selected part...";
+        const clip = path.join(work, "clip.mp3");
+        await clipAudio(file, clip, start, end);
+        fs.rmSync(file, { force: true });
+        file = clip; start = 0; end = null;
+      }
+      job.audio = file; // giữ lại để phát lại từng câu và để lưu vào thư viện
       await transcribe(file, lang, {
         onStatus: (message) => (job.message = message),
         onProgress: (progress) => (job.progress = progress),
@@ -101,7 +103,8 @@ async function subtitleWorker(id: string, lang: string | null, upl: string | nul
     job.status = "error";
     job.message = errMsg(e);
   } finally {
-    if (!upl) fs.rmSync(work, { recursive: true, force: true }); // file tải lên được giữ lại để phát lại từng câu
+    // Thành công thì giữ lại âm thanh (file tải lên hoặc file tải từ YouTube) để phát lại từng câu; lỗi thì dọn thư mục tạm.
+    if (!upl && job.status === "error") fs.rmSync(work, { recursive: true, force: true });
   }
 }
 
